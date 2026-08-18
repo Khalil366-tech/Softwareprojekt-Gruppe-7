@@ -1,0 +1,22 @@
+# Python Cache & Bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtuelle Umgebungen (falls genutzt)
+.venv/
+venv/
+ENV/
+
+# Editor- & IDE-Einstellungen
+.vscode/
+.idea/
+*.swp
+
+# Lokale Datenbank & temporäre Ausgabedateien
+fanshop.db
+rechnung.txt
+
+# Betriebssystem-Dateien
+.DS_Store
+Thumbs.db
