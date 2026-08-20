@@ -4,6 +4,10 @@ from datetime import datetime
 import config
 from models import Artikel, Kunde, Bestellung, WarenkorbPosition
 
+# =====================================================================
+# 1. BASISEINSTELLUNGEN & INITIALISIERUNG (Ganz oben)
+# =====================================================================
+
 def get_connection():
     """Erstellt eine thread-sichere Verbindung zur SQLite-Datenbank aus config.py."""
     conn = sqlite3.connect(config.DB_PFAD)
@@ -16,7 +20,7 @@ def db_initialisieren():
     with get_connection() as conn:
         cursor = conn.cursor()
 
-        # 1. Kategorien
+        # Kategorien
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS kategorien (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -24,7 +28,7 @@ def db_initialisieren():
             )
         """)
 
-        # 2. Artikel (D01)
+        # Artikel (D01)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS artikel (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -38,7 +42,7 @@ def db_initialisieren():
             )
         """)
 
-        # 3. Kunden (D02)
+        # Kunden (D02)
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS kunden (
                 kundennummer TEXT PRIMARY KEY,
@@ -51,7 +55,7 @@ def db_initialisieren():
             )
         """)
 
-        # 4. Bestellungen
+        # Bestellungen
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS bestellungen (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,7 +66,7 @@ def db_initialisieren():
             )
         """)
 
-        # 5. Bestellpositionen (für historische Berichte / Person 5)
+        # Bestellpositionen
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS bestellpositionen (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,13 +82,34 @@ def db_initialisieren():
 
 
 # =====================================================================
-# ARTIKEL-CRUD (D01 / Person 1, 4 & 5)
+# 2. ARTIKEL-CRUD & SUCHE (Für Person 3 & Person 4)
 # =====================================================================
 
 def alle_artikel_laden() -> list[Artikel]:
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM artikel ORDER BY id ASC")
+        return [
+            Artikel(
+                id=row["id"],
+                titel=row["titel"],
+                beschreibung=row["beschreibung"],
+                kategorie=row["kategorie"],
+                preis=row["preis"],
+                rabattsatz=row["rabattsatz"],
+                lagerbestand=row["lagerbestand"],
+                erstellungsdatum=row["erstellungsdatum"]
+            ) for row in cursor.fetchall()
+        ]
+
+def artikel_suchen(suchtext: str = "") -> list[Artikel]:
+    """Ergänzung für gui_main (Person 3): Filtert nach Titel oder Kategorie."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if not suchtext:
+            return alle_artikel_laden()
+        query = "SELECT * FROM artikel WHERE titel LIKE ? OR kategorie LIKE ?"
+        cursor.execute(query, (f"%{suchtext}%", f"%{suchtext}%"))
         return [
             Artikel(
                 id=row["id"],
@@ -152,7 +177,7 @@ def lagerbestand_aktualisieren(artikel_id: int, neuer_bestand: int):
 
 
 # =====================================================================
-# KUNDEN-CRUD (D02 / Person 1, 3 & 4)
+# 3. KUNDEN-CRUD (Für Person 3 & Person 4)
 # =====================================================================
 
 def alle_kunden_laden() -> list[Kunde]:
@@ -206,23 +231,20 @@ def kunde_loeschen(kundennummer: str):
 
 
 # =====================================================================
-# BESTELLUNGEN & TRANSAKTIONEN (F14 & Berichte / Person 2 & 5)
+# 4. BESTELLUNGEN & TRANSAKTIONEN (Für Person 2 & Person 3)
 # =====================================================================
 
 def bestellung_speichern(kundennummer: str, gesamtbetrag: float, positionen: list[WarenkorbPosition]) -> int:
-    """Speichert eine Bestellung samt Positionen und bucht Lagerbestände ab."""
     with get_connection() as conn:
         cursor = conn.cursor()
         datum_jetzt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        # 1. Bestellung anlegen
         cursor.execute("""
             INSERT INTO bestellungen (kundennummer, datum, gesamtbetrag)
             VALUES (?, ?, ?)
         """, (kundennummer, datum_jetzt, gesamtbetrag))
         bestell_id = cursor.lastrowid
 
-        # 2. Positionen anlegen und Lagerbestand reduzieren
         for pos in positionen:
             cursor.execute("""
                 INSERT INTO bestellpositionen (bestell_id, artikel_id, artikel_titel, menge, einzelpreis)
@@ -253,33 +275,114 @@ def alle_bestellungen_laden() -> list[Bestellung]:
 
 
 # =====================================================================
-# INITIALISIERUNG & BEISPIELDATEN (Seeding)
+# 5. BERICHTE & DASHBOARD (Ergänzung für Person 5 / gui_reports)
+# =====================================================================
+
+def _formatiere_datum_fuer_sql(datum_str: str | None) -> str | None:
+    if not datum_str or not datum_str.strip():
+        return None
+    datum_str = datum_str.strip()
+    try:
+        if "." in datum_str:
+            teile = datum_str.split(".")
+            if len(teile) == 3:
+                return f"{teile[2]}-{teile[1].zfill(2)}-{teile[0].zfill(2)}"
+        return datum_str
+    except Exception:
+        return None
+
+def get_gesamtumsatz(start: str | None = None, ende: str | None = None) -> float:
+    start_sql = _formatiere_datum_fuer_sql(start)
+    ende_sql = _formatiere_datum_fuer_sql(ende)
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = "SELECT SUM(gesamtbetrag) FROM bestellungen WHERE 1=1"
+        params = []
+        if start_sql:
+            query += " AND datum >= ?"
+            params.append(f"{start_sql} 00:00:00")
+        if ende_sql:
+            query += " AND datum <= ?"
+            params.append(f"{ende_sql} 23:59:59")
+        cursor.execute(query, params)
+        res = cursor.fetchone()[0]
+        return float(res) if res is not None else 0.0
+
+def get_bestellungen_anzahl(start: str | None = None, ende: str | None = None) -> int:
+    start_sql = _formatiere_datum_fuer_sql(start)
+    ende_sql = _formatiere_datum_fuer_sql(ende)
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = "SELECT COUNT(*) FROM bestellungen WHERE 1=1"
+        params = []
+        if start_sql:
+            query += " AND datum >= ?"
+            params.append(f"{start_sql} 00:00:00")
+        if ende_sql:
+            query += " AND datum <= ?"
+            params.append(f"{ende_sql} 23:59:59")
+        cursor.execute(query, params)
+        res = cursor.fetchone()[0]
+        return int(res) if res is not None else 0
+
+def get_artikel_umsatzanteile(start: str | None = None, ende: str | None = None) -> list[dict]:
+    start_sql = _formatiere_datum_fuer_sql(start)
+    ende_sql = _formatiere_datum_fuer_sql(ende)
+    
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = """
+            SELECT bp.artikel_titel, SUM(bp.menge) AS gesamt_menge, SUM(bp.menge * bp.einzelpreis) AS gesamt_umsatz
+            FROM bestellpositionen bp
+            JOIN bestellungen b ON bp.bestell_id = b.id
+            WHERE 1=1
+        """
+        params = []
+        if start_sql:
+            query += " AND b.datum >= ?"
+            params.append(f"{start_sql} 00:00:00")
+        if ende_sql:
+            query += " AND b.datum <= ?"
+            params.append(f"{ende_sql} 23:59:59")
+            
+        query += " GROUP BY bp.artikel_titel ORDER BY gesamt_umsatz DESC"
+        cursor.execute(query, params)
+        
+        ergebnis = []
+        for row in cursor.fetchall():
+            ergebnis.append({
+                "titel": row["artikel_titel"],
+                "menge": row["gesamt_menge"],
+                "umsatz": float(row["gesamt_umsatz"])
+            })
+        return ergebnis
+
+# =====================================================================
+# 5. SEEDING & BEISPIELDATEN (Muss VOR DatabaseManager stehen!)
 # =====================================================================
 
 def beispieldaten_einfuegen():
-    """Füllt die Datenbank mit Kategorien, Testartikeln und Testkunden."""
     with get_connection() as conn:
         cursor = conn.cursor()
 
-        # Kategorien aus config.py einfügen
         for kat in config.KATEGORIEN:
             cursor.execute("INSERT OR IGNORE INTO kategorien (name) VALUES (?)", (kat,))
 
-        # Testartikel einfügen, falls Tabelle leer
         cursor.execute("SELECT COUNT(*) FROM artikel")
         if cursor.fetchone()[0] == 0:
             test_artikel = [
                 ("HTW Saar T-Shirt", "Klassisches Baumwoll-Shirt mit Logo", "T-Shirt", 19.99, 0.0, 15, "2026-08-01"),
-                ("WI Hoodie Classic", "Bequemer Kapuzenpullover", "Hoodie", 39.99, 0.10, 3, "2026-08-05"), # Niedriger Bestand (< 5)
+                ("WI Hoodie Classic", "Bequemer Kapuzenpullover", "Hoodie", 39.99, 0.10, 3, "2026-08-05"),
                 ("HTW Saar Kaffeetasse", "Keramiktasse mit Campus-Aufdruck", "Tasse", 8.50, 0.0, 20, "2026-08-10"),
-                ("Sticker-Set Campus", "5er Set wetterfeste Sticker", "Sticker", 2.50, 0.0, 1, "2026-08-12"), # FOMO (< 2)
+                ("Sticker-Set Campus", "5er Set wetterfeste Sticker", "Sticker", 2.50, 0.0, 1, "2026-08-12"),
             ]
             cursor.executemany("""
                 INSERT INTO artikel (titel, beschreibung, kategorie, preis, rabattsatz, lagerbestand, erstellungsdatum)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, test_artikel)
 
-        # Testkunde einfügen
         cursor.execute("SELECT COUNT(*) FROM kunden")
         if cursor.fetchone()[0] == 0:
             cursor.execute("""
@@ -290,12 +393,24 @@ def beispieldaten_einfuegen():
         conn.commit()
 
 
+# =====================================================================
+# 6. KOMPATIBILITÄTS-WRAPPER FÜR PERSON 5
+# =====================================================================
+
+class DatabaseManager:
+    """Kompatibilitäts-Wrapper für Person 5."""
+    get_gesamtumsatz = staticmethod(get_gesamtumsatz)
+    get_bestellungen_anzahl = staticmethod(get_bestellungen_anzahl)
+    get_artikel_umsatzanteile = staticmethod(get_artikel_umsatzanteile)
+    db_initialisieren = staticmethod(db_initialisieren)
+    beispieldaten_einfuegen = staticmethod(beispieldaten_einfuegen)
+
+
+# =====================================================================
+# 7. DIREKTER TESTLAUF
+# =====================================================================
+
 if __name__ == "__main__":
     db_initialisieren()
     beispieldaten_einfuegen()
     print("✅ Datenbank erfolgreich initialisiert und mit Testdaten befüllt!")
-    
-    artikel = alle_artikel_laden()
-    kunden = alle_kunden_laden()
-    print(f"📦 {len(artikel)} Artikel geladen.")
-    print(f"👤 {len(kunden)} Kunde(n) geladen: {kunden[0].name} ({kunden[0].email})")
