@@ -3,12 +3,9 @@ from tkinter import ttk, messagebox
 import config
 from backend import ShopBackend
 import database
-<<<<<<< HEAD
 from gui_articles import ArtikelverwaltungView
 from gui_customers import KundenverwaltungView
 from gui_reports import ReportsWindow
-=======
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
 
 
 class MainWindow(tk.Tk):
@@ -19,7 +16,7 @@ class MainWindow(tk.Tk):
         self.db = db_manager or database
         self.backend = ShopBackend(db_manager=self.db)
 
-        self.title("WI Fanshop- Kassen & Checkout")
+        self.title(getattr(config, "APP_TITLE", "WI Fanshop — Kassen & Checkout"))
         self.geometry("1100x700")
         self.minsize(950, 600)
 
@@ -79,7 +76,6 @@ class MainWindow(tk.Tk):
             view = KassenView(self.content_area, self.backend, self.db)
             view.pack(fill=tk.BOTH, expand=True)
         elif view_name == "artikel":
-<<<<<<< HEAD
             view = ArtikelverwaltungView(self.content_area, self.db)
             view.pack(fill=tk.BOTH, expand=True)
         elif view_name == "kunden":
@@ -88,13 +84,6 @@ class MainWindow(tk.Tk):
         elif view_name == "berichte":
             view = ReportsWindow(self.content_area, self.db)
             view.pack(fill=tk.BOTH, expand=True)
-=======
-            self._zeige_platzhalter("⚙️ Artikelverwaltung (Person 4)")
-        elif view_name == "kunden":
-            self._zeige_platzhalter("👥 Kundenverwaltung (Person 4)")
-        elif view_name == "berichte":
-            self._zeige_platzhalter("📊 Berichte & Dashboard (Person 5)")
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
 
     def _zeige_platzhalter(self, titel):
         tk.Label(
@@ -104,6 +93,7 @@ class MainWindow(tk.Tk):
             bg="#ECF0F1",
             fg="#7F8C8D"
         ).pack(expand=True)
+
 
 class KassenView(tk.Frame):
     """Kassen- und Checkout-Ansicht (Person 3)."""
@@ -256,13 +246,9 @@ class KassenView(tk.Frame):
         elif hasattr(self.db, "artikel_laden"):
             artikeln = self.db.artikel_laden()
         else:
-            print("⚠️ Keine passende Funktion zum Laden der Artikel in database.py gefunden!")
             artikeln = []
 
-        print(f"📦 Geladene Artikel aus der DB: {len(artikeln)}")
-
         for art in artikeln:
-            print(f"   -> Artikel: {getattr(art, 'titel', getattr(art, 'name', 'Unbekannt'))}")
             art_id = getattr(art, "id", getattr(art, "artikel_id", 0))
             titel = getattr(art, "titel", getattr(art, "name", "-"))
             kategorie = getattr(art, "kategorie", "-")
@@ -272,6 +258,7 @@ class KassenView(tk.Frame):
             self.artikel_tree.insert("", tk.END, values=(
                 art_id, titel, kategorie, f"{preis:.2f}", bestand
             ))
+
     def _artikel_filtern(self):
         text = self.such_entry.get().strip()
         if hasattr(self.db, "suche_artikel"):
@@ -356,15 +343,10 @@ class KassenView(tk.Frame):
 
 
 if __name__ == "__main__":
-    # Datenbank sicher initialisieren
     if hasattr(database, "db_initialisieren"):
         database.db_initialisieren()
     if hasattr(database, "beispieldaten_einfuegen"):
         database.beispieldaten_einfuegen()
 
     app = MainWindow(database)
-<<<<<<< HEAD
     app.mainloop()
-=======
-    app.mainloop() 
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
