@@ -1,0 +1,1503 @@
+=== config.py ===
+"""
+config.py
+
+Zentrale Konfigurationsdatei der WI Fanshop Anwendung.
+
+Alle projektweiten Konstanten werden ausschließlich hier gepflegt
+(Single Source of Truth). Kein anderes Modul darf diese Werte erneut
+hartkodieren - das ist Teil der Merge-Konflikt-Vermeidungsstrategie
+aus dem Projekt-Blueprint.
+"""
+
+from __future__ import annotations
+
+# --- Datenbank ------------------------------------------------------------
+DB_PFAD: str = "fanshop.db"
+
+# --- Marketing: Rabatte -----------------------------------------------------
+STUDENTEN_RABATT_SATZ: float = 0.10  # 10 % Rabatt für Kunden mit ist_student=True
+
+# --- Marketing: Lagerbestand-Schwellenwerte ---------------------------------
+# <= FOMO_SCHWELLE  -> "Nur noch X übrig!"-Hinweis in der Kassenansicht (gui_main.py)
+FOMO_SCHWELLE: int = 2
+# < NIEDRIGER_BESTAND_SCHWELLE -> rote Warnung in der Artikelverwaltung (gui_articles.py)
+NIEDRIGER_BESTAND_SCHWELLE: int = 10
+
+# --- Marketing: Freshman Starter Kit (Bundle) -------------------------------
+FRESHMAN_STARTER_KIT_NAME: str = "Freshman Starter Kit"
+FRESHMAN_STARTER_KIT_ARTIKEL: list[str] = [
+    "HTW Saar T-Shirt",
+    "HTW Saar Tasse",
+    "HTW Saar Sticker-Set",
+]
+FRESHMAN_STARTER_KIT_PREIS: float = 19.99  # fester Paketpreis (Einzelsumme liegt darüber)
+
+# --- Rechnung ----------------------------------------------------------------
+RECHNUNG_DATEIPFAD: str = "rechnung.txt"
+# --- Kategorien (Für die Datenbank) ---
+KATEGORIEN = ["T-Shirt", "Hoodie", "Tasse", "Sticker", "Accessoires"]
+
+=== models.py ===
+
+# models.py
+from datetime import datetime
+
+class Kategorie:
+    def __init__(self, id, name):
+        self.id = id
+        self.name = name
+
+
+class Artikel:
+    def __init__(self, id, titel, beschreibung, kategorie, preis,
+                 rabattsatz=0.0, lagerbestand=0, erstellungsdatum=None, merkmale=None):
+        self.id = id
+        self.titel = str(titel)
+        self.beschreibung = str(beschreibung or "")
+        self.kategorie = str(kategorie)
+        self.preis = float(preis)
+        self.rabattsatz = float(rabattsatz)
+        self.lagerbestand = int(lagerbestand)
+        self.erstellungsdatum = erstellungsdatum or datetime.now().strftime("%Y-%m-%d")
+        self.merkmale = merkmale or {}
+
+    @property
+    def effektiver_preis(self) -> float:
+        """Gibt den Preis nach Abzug des artikelbezogenen Rabattsatzes zurück."""
+        return round(self.preis * (1.0 - self.rabattsatz), 2)
+
+
+class Kunde:
+    def __init__(self, kundennummer, name, strasse, plz, ort, ist_student=False, email=""):
+        self.kundennummer = str(kundennummer)
+        self.name = str(name)
+        self.strasse = str(strasse)
+        self.plz = str(plz)
+        self.ort = str(ort)
+        self.ist_student = bool(ist_student)
+        self.email = str(email)
+
+
+class WarenkorbPosition:
+    def __init__(self, artikel: Artikel, menge: int):
+        self.artikel = artikel
+        self.menge = int(menge)
+
+    def positions_gesamtpreis(self) -> float:
+        """Berechnet den Gesamtpreis dieser Position unter Berücksichtigung des Artikel-Rabatts."""
+        return round(self.artikel.effektiver_preis * self.menge, 2)
+
+
+class Warenkorb:
+    def __init__(self):
+        self.positionen: list[WarenkorbPosition] = []
+
+    def position_hinzufuegen(self, artikel: Artikel, menge: int = 1):
+        for pos in self.positionen:
+            if pos.artikel.id == artikel.id:
+                pos.menge += menge
+                return
+        self.positionen.append(WarenkorbPosition(artikel, menge))
+
+    def position_entfernen(self, artikel_id: int):
+        self.positionen = [pos for pos in self.positionen if pos.artikel.id != artikel_id]
+
+    def leeren(self):
+        self.positionen.clear()
+
+    def zwischensumme(self) -> float:
+        return round(sum(pos.positions_gesamtpreis() for pos in self.positionen), 2)
+
+
+class Bestellung:
+    def __init__(self, id, kundennummer, datum, gesamtbetrag, positionen=None):
+        self.id = id
+        self.kundennummer = kundennummer
+        self.datum = datum
+        self.gesamtbetrag = float(gesamtbetrag)
+        self.positionen = positionen or []
+
+=== database.py ===
+# database.py
+import sqlite3
+from datetime import datetime
+import config
+from models import Artikel, Kunde, Bestellung, WarenkorbPosition
+
+# =====================================================================
+# 1. BASISEINSTELLUNGEN & INITIALISIERUNG (Ganz oben)
+# =====================================================================
+
+def get_connection():
+    """Erstellt eine thread-sichere Verbindung zur SQLite-Datenbank aus config.py."""
+    conn = sqlite3.connect(config.DB_PFAD)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def db_initialisieren():
+    """Erstellt alle benötigten Tabellen laut Lastenheft (D01, D02, F14, F31)."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        # Kategorien
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS kategorien (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE
+            )
+        """)
+
+        # Artikel (D01)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS artikel (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                titel TEXT NOT NULL,
+                beschreibung TEXT,
+                kategorie TEXT NOT NULL,
+                preis REAL NOT NULL,
+                rabattsatz REAL DEFAULT 0.0,
+                lagerbestand INTEGER NOT NULL,
+                erstellungsdatum TEXT NOT NULL
+            )
+        """)
+
+        # Kunden (D02)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS kunden (
+                kundennummer TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                strasse TEXT NOT NULL,
+                plz TEXT NOT NULL,
+                ort TEXT NOT NULL,
+                ist_student INTEGER DEFAULT 0,
+                email TEXT
+            )
+        """)
+
+        # Bestellungen
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bestellungen (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                kundennummer TEXT NOT NULL,
+                datum TEXT NOT NULL,
+                gesamtbetrag REAL NOT NULL,
+                FOREIGN KEY (kundennummer) REFERENCES kunden(kundennummer)
+            )
+        """)
+
+        # Bestellpositionen
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS bestellpositionen (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bestell_id INTEGER NOT NULL,
+                artikel_id INTEGER NOT NULL,
+                artikel_titel TEXT NOT NULL,
+                menge INTEGER NOT NULL,
+                einzelpreis REAL NOT NULL,
+                FOREIGN KEY (bestell_id) REFERENCES bestellungen(id)
+            )
+        """)
+        conn.commit()
+
+
+# =====================================================================
+# 2. ARTIKEL-CRUD & SUCHE (Für Person 3 & Person 4)
+# =====================================================================
+
+def alle_artikel_laden() -> list[Artikel]:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM artikel ORDER BY id ASC")
+        return [
+            Artikel(
+                id=row["id"],
+                titel=row["titel"],
+                beschreibung=row["beschreibung"],
+                kategorie=row["kategorie"],
+                preis=row["preis"],
+                rabattsatz=row["rabattsatz"],
+                lagerbestand=row["lagerbestand"],
+                erstellungsdatum=row["erstellungsdatum"]
+            ) for row in cursor.fetchall()
+        ]
+
+def artikel_suchen(suchtext: str = "") -> list[Artikel]:
+    """Ergänzung für gui_main (Person 3): Filtert nach Titel oder Kategorie."""
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        if not suchtext:
+            return alle_artikel_laden()
+        query = "SELECT * FROM artikel WHERE titel LIKE ? OR kategorie LIKE ?"
+        cursor.execute(query, (f"%{suchtext}%", f"%{suchtext}%"))
+        return [
+            Artikel(
+                id=row["id"],
+                titel=row["titel"],
+                beschreibung=row["beschreibung"],
+                kategorie=row["kategorie"],
+                preis=row["preis"],
+                rabattsatz=row["rabattsatz"],
+                lagerbestand=row["lagerbestand"],
+                erstellungsdatum=row["erstellungsdatum"]
+            ) for row in cursor.fetchall()
+        ]
+
+def artikel_nach_id_laden(artikel_id: int) -> Artikel | None:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM artikel WHERE id = ?", (artikel_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return Artikel(
+            id=row["id"],
+            titel=row["titel"],
+            beschreibung=row["beschreibung"],
+            kategorie=row["kategorie"],
+            preis=row["preis"],
+            rabattsatz=row["rabattsatz"],
+            lagerbestand=row["lagerbestand"],
+            erstellungsdatum=row["erstellungsdatum"]
+        )
+
+def artikel_hinzufuegen(artikel: Artikel) -> int:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO artikel (titel, beschreibung, kategorie, preis, rabattsatz, lagerbestand, erstellungsdatum)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (artikel.titel, artikel.beschreibung, artikel.kategorie, artikel.preis,
+              artikel.rabattsatz, artikel.lagerbestand, artikel.erstellungsdatum))
+        conn.commit()
+        return cursor.lastrowid
+
+def artikel_aktualisieren(artikel: Artikel):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            UPDATE artikel
+            SET titel = ?, beschreibung = ?, kategorie = ?, preis = ?, rabattsatz = ?, lagerbestand = ?
+            WHERE id = ?
+        """, (artikel.titel, artikel.beschreibung, artikel.kategorie, artikel.preis,
+              artikel.rabattsatz, artikel.lagerbestand, artikel.id))
+        conn.commit()
+
+def artikel_loeschen(artikel_id: int):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM artikel WHERE id = ?", (artikel_id,))
+        conn.commit()
+
+def lagerbestand_aktualisieren(artikel_id: int, neuer_bestand: int):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE artikel SET lagerbestand = ? WHERE id = ?", (neuer_bestand, artikel_id))
+        conn.commit()
+
+
+# =====================================================================
+# 3. KUNDEN-CRUD (Für Person 3 & Person 4)
+# =====================================================================
+
+def alle_kunden_laden() -> list[Kunde]:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM kunden ORDER BY name ASC")
+        return [
+            Kunde(
+                kundennummer=row["kundennummer"],
+                name=row["name"],
+                strasse=row["strasse"],
+                plz=row["plz"],
+                ort=row["ort"],
+                ist_student=bool(row["ist_student"]),
+                email=row["email"] or ""
+            ) for row in cursor.fetchall()
+        ]
+
+def kunde_nach_nummer_laden(kundennummer: str) -> Kunde | None:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM kunden WHERE kundennummer = ?", (kundennummer,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+        return Kunde(
+            kundennummer=row["kundennummer"],
+            name=row["name"],
+            strasse=row["strasse"],
+            plz=row["plz"],
+            ort=row["ort"],
+            ist_student=bool(row["ist_student"]),
+            email=row["email"] or ""
+        )
+
+def kunde_hinzufuegen(kunde: Kunde):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO kunden (kundennummer, name, strasse, plz, ort, ist_student, email)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (kunde.kundennummer, kunde.name, kunde.strasse, kunde.plz, kunde.ort,
+              1 if kunde.ist_student else 0, kunde.email))
+        conn.commit()
+
+def kunde_loeschen(kundennummer: str):
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM kunden WHERE kundennummer = ?", (kundennummer,))
+        conn.commit()
+
+
+# =====================================================================
+# 4. BESTELLUNGEN & TRANSAKTIONEN (Für Person 2 & Person 3)
+# =====================================================================
+
+def bestellung_speichern(kundennummer: str, gesamtbetrag: float, positionen: list[WarenkorbPosition]) -> int:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        datum_jetzt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        cursor.execute("""
+            INSERT INTO bestellungen (kundennummer, datum, gesamtbetrag)
+            VALUES (?, ?, ?)
+        """, (kundennummer, datum_jetzt, gesamtbetrag))
+        bestell_id = cursor.lastrowid
+
+        for pos in positionen:
+            cursor.execute("""
+                INSERT INTO bestellpositionen (bestell_id, artikel_id, artikel_titel, menge, einzelpreis)
+                VALUES (?, ?, ?, ?, ?)
+            """, (bestell_id, pos.artikel.id, pos.artikel.titel, pos.menge, pos.artikel.effektiver_preis))
+
+            cursor.execute("""
+                UPDATE artikel
+                SET lagerbestand = MAX(0, lagerbestand - ?)
+                WHERE id = ?
+            """, (pos.menge, pos.artikel.id))
+
+        conn.commit()
+        return bestell_id
+
+def alle_bestellungen_laden() -> list[Bestellung]:
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM bestellungen ORDER BY datum DESC")
+        return [
+            Bestellung(
+                id=row["id"],
+                kundennummer=row["kundennummer"],
+                datum=row["datum"],
+                gesamtbetrag=row["gesamtbetrag"]
+            ) for row in cursor.fetchall()
+        ]
+
+
+# =====================================================================
+# 5. BERICHTE & DASHBOARD (Ergänzung für Person 5 / gui_reports)
+# =====================================================================
+
+def _formatiere_datum_fuer_sql(datum_str: str | None) -> str | None:
+    if not datum_str or not datum_str.strip():
+        return None
+    datum_str = datum_str.strip()
+    try:
+        if "." in datum_str:
+            teile = datum_str.split(".")
+            if len(teile) == 3:
+                return f"{teile[2]}-{teile[1].zfill(2)}-{teile[0].zfill(2)}"
+        return datum_str
+    except Exception:
+        return None
+
+def get_gesamtumsatz(start: str | None = None, ende: str | None = None) -> float:
+    start_sql = _formatiere_datum_fuer_sql(start)
+    ende_sql = _formatiere_datum_fuer_sql(ende)
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = "SELECT SUM(gesamtbetrag) FROM bestellungen WHERE 1=1"
+        params = []
+        if start_sql:
+            query += " AND datum >= ?"
+            params.append(f"{start_sql} 00:00:00")
+        if ende_sql:
+            query += " AND datum <= ?"
+            params.append(f"{ende_sql} 23:59:59")
+        cursor.execute(query, params)
+        res = cursor.fetchone()[0]
+        return float(res) if res is not None else 0.0
+
+def get_bestellungen_anzahl(start: str | None = None, ende: str | None = None) -> int:
+    start_sql = _formatiere_datum_fuer_sql(start)
+    ende_sql = _formatiere_datum_fuer_sql(ende)
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = "SELECT COUNT(*) FROM bestellungen WHERE 1=1"
+        params = []
+        if start_sql:
+            query += " AND datum >= ?"
+            params.append(f"{start_sql} 00:00:00")
+        if ende_sql:
+            query += " AND datum <= ?"
+            params.append(f"{ende_sql} 23:59:59")
+        cursor.execute(query, params)
+        res = cursor.fetchone()[0]
+        return int(res) if res is not None else 0
+
+def get_artikel_umsatzanteile(start: str | None = None, ende: str | None = None) -> list[dict]:
+    start_sql = _formatiere_datum_fuer_sql(start)
+    ende_sql = _formatiere_datum_fuer_sql(ende)
+
+    with get_connection() as conn:
+        cursor = conn.cursor()
+        query = """
+            SELECT bp.artikel_titel, SUM(bp.menge) AS gesamt_menge, SUM(bp.menge * bp.einzelpreis) AS gesamt_umsatz
+            FROM bestellpositionen bp
+            JOIN bestellungen b ON bp.bestell_id = b.id
+            WHERE 1=1
+        """
+        params = []
+        if start_sql:
+            query += " AND b.datum >= ?"
+            params.append(f"{start_sql} 00:00:00")
+        if ende_sql:
+            query += " AND b.datum <= ?"
+            params.append(f"{ende_sql} 23:59:59")
+
+        query += " GROUP BY bp.artikel_titel ORDER BY gesamt_umsatz DESC"
+        cursor.execute(query, params)
+
+        ergebnis = []
+        for row in cursor.fetchall():
+            ergebnis.append({
+                "titel": row["artikel_titel"],
+                "menge": row["gesamt_menge"],
+                "umsatz": float(row["gesamt_umsatz"])
+            })
+        return ergebnis
+
+# =====================================================================
+# 5. SEEDING & BEISPIELDATEN (Muss VOR DatabaseManager stehen!)
+# =====================================================================
+
+def beispieldaten_einfuegen():
+    with get_connection() as conn:
+        cursor = conn.cursor()
+
+        for kat in config.KATEGORIEN:
+            cursor.execute("INSERT OR IGNORE INTO kategorien (name) VALUES (?)", (kat,))
+
+        cursor.execute("SELECT COUNT(*) FROM artikel")
+        if cursor.fetchone()[0] == 0:
+            test_artikel = [
+                ("HTW Saar T-Shirt", "Klassisches Baumwoll-Shirt mit Logo", "T-Shirt", 19.99, 0.0, 15, "2026-08-01"),
+                ("WI Hoodie Classic", "Bequemer Kapuzenpullover", "Hoodie", 39.99, 0.10, 3, "2026-08-05"),
+                ("HTW Saar Kaffeetasse", "Keramiktasse mit Campus-Aufdruck", "Tasse", 8.50, 0.0, 20, "2026-08-10"),
+                ("Sticker-Set Campus", "5er Set wetterfeste Sticker", "Sticker", 2.50, 0.0, 1, "2026-08-12"),
+            ]
+            cursor.executemany("""
+                INSERT INTO artikel (titel, beschreibung, kategorie, preis, rabattsatz, lagerbestand, erstellungsdatum)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, test_artikel)
+
+        cursor.execute("SELECT COUNT(*) FROM kunden")
+        if cursor.fetchone()[0] == 0:
+            cursor.execute("""
+                INSERT INTO kunden (kundennummer, name, strasse, plz, ort, ist_student, email)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, ("K-1001", "Max Mustermann", "Campus Alt-Saarbrücken 1", "66117", "Saarbrücken", 1, "max.mustermann@htwsaar.de"))
+
+        conn.commit()
+
+
+# =====================================================================
+# 6. KOMPATIBILITÄTS-WRAPPER FÜR PERSON 5
+# =====================================================================
+
+class DatabaseManager:
+    """Kompatibilitäts-Wrapper für Person 5."""
+    get_gesamtumsatz = staticmethod(get_gesamtumsatz)
+    get_bestellungen_anzahl = staticmethod(get_bestellungen_anzahl)
+    get_artikel_umsatzanteile = staticmethod(get_artikel_umsatzanteile)
+    db_initialisieren = staticmethod(db_initialisieren)
+    beispieldaten_einfuegen = staticmethod(beispieldaten_einfuegen)
+
+
+# =====================================================================
+# 7. DIREKTER TESTLAUF
+# =====================================================================
+
+if __name__ == "__main__":
+    db_initialisieren()
+    beispieldaten_einfuegen()
+    print("✅ Datenbank erfolgreich initialisiert und mit Testdaten befüllt!")
+
+=== backend.py ===
+"""
+backend.py - Geschäftslogik und Kassiervorgang für den WI-Fanshop.
+Verantwortlich: Person 2 (/F11/ - /F14/)
+"""
+
+from datetime import datetime
+import config
+import database
+from models import Artikel, Kunde, Warenkorb, WarenkorbPosition
+
+
+class ShopBackend:
+    """Verwaltet die Geschäftslogik, den Warenkorb und den Kassiervorgang."""
+
+    def __init__(self, db_manager=None) -> None:
+        self.warenkorb = Warenkorb()
+        self.kunde: Kunde | None = None
+        self.db = db_manager or database
+
+    def set_kunde(self, kunde: Kunde | None) -> None:
+        """Setzt den aktiven Kunden für Rabattberechnungen."""
+        self.kunde = kunde
+
+    def artikel_hinzufuegen(self, artikel: Artikel, menge: int = 1, groesse: str | None = None) -> None:
+        """/F11/: Fügt einen Artikel zum Warenkorb hinzu mit Bestandsprüfung."""
+        if menge <= 0:
+            raise ValueError("Die Menge muss mindestens 1 betragen.")
+
+        # Aktuell bereits im Warenkorb befindliche Menge ermitteln
+        bereits_im_warenkorb = 0
+        for pos in self.warenkorb.positionen:
+            if pos.artikel.id == artikel.id and getattr(pos, "groesse", None) == groesse:
+                bereits_im_warenkorb += pos.menge
+
+        neue_gesamtmenge = bereits_im_warenkorb + menge
+
+        # Lagerbestandsprüfung
+        if neue_gesamtmenge > artikel.lagerbestand:
+            raise ValueError(
+                f"Nicht genügend Bestand für '{artikel.titel}'. "
+                f"Verfügbar: {artikel.lagerbestand}, Im Warenkorb gewünscht: {neue_gesamtmenge}."
+            )
+
+        # Bestehende Position erhöhen
+        for pos in self.warenkorb.positionen:
+            if pos.artikel.id == artikel.id and getattr(pos, "groesse", None) == groesse:
+                pos.menge += menge
+                return
+
+        # Neue Position anlegen
+        neue_pos = WarenkorbPosition(artikel=artikel, menge=menge)
+        setattr(neue_pos, "groesse", groesse)
+        self.warenkorb.positionen.append(neue_pos)
+
+    def artikel_entfernen(self, artikel_id: int, groesse: str | None = None) -> None:
+        """/F12/: Entfernt eine Position komplett aus dem Warenkorb."""
+        self.warenkorb.positionen = [
+            pos for pos in self.warenkorb.positionen
+            if not (pos.artikel.id == artikel_id and getattr(pos, "groesse", None) == groesse)
+        ]
+
+    def menge_aendern(self, artikel_id: int, neue_menge: int, groesse: str | None = None) -> None:
+        """/F12/: Ändert die Menge einer bestehenden Position."""
+        if neue_menge <= 0:
+            self.artikel_entfernen(artikel_id, groesse)
+            return
+
+        for pos in self.warenkorb.positionen:
+            if pos.artikel.id == artikel_id and getattr(pos, "groesse", None) == groesse:
+                if neue_menge > pos.artikel.lagerbestand:
+                    raise ValueError(f"Bestand nicht ausreichend. Maximal verfügbar: {pos.artikel.lagerbestand}.")
+                pos.menge = neue_menge
+                return
+
+    def zwischensumme_berechnen(self) -> float:
+        """/F13/: Berechnet die Zwischensumme aller Positionen (inkl. Artikelrabatten)."""
+        summe = 0.0
+        for pos in self.warenkorb.positionen:
+            if hasattr(pos, "positions_gesamtpreis") and callable(pos.positions_gesamtpreis):
+                summe += pos.positions_gesamtpreis()
+            elif hasattr(pos, "gesamtpreis") and callable(pos.gesamtpreis):
+                summe += pos.gesamtpreis()
+            else:
+                rabatt = getattr(pos.artikel, "rabattsatz", 0.0)
+                einzelpreis = pos.artikel.preis * (1.0 - rabatt)
+                summe += einzelpreis * pos.menge
+        return round(summe, 2)
+
+    def rabatt_berechnen(self) -> float:
+        """/F13/: Berechnet Kundenrabatte (Studentenrabatt & Erstbesteller)."""
+        zwischensumme = self.zwischensumme_berechnen()
+        gesamtrabatt_faktor = 0.0
+
+        if self.kunde:
+            # 1. Studentenrabatt
+            if getattr(self.kunde, "ist_student", False):
+                gesamtrabatt_faktor += getattr(config, "STUDENTEN_RABATT_SATZ", 0.10)
+
+            # 2. Erstbesteller-Rabatt (falls Attribut vorhanden oder Neukunde)
+            if not getattr(self.kunde, "hat_erstbestellung", False) and getattr(config, "ERSTBESTELLER_RABATT_SATZ", 0.0) > 0:
+                gesamtrabatt_faktor += getattr(config, "ERSTBESTELLER_RABATT_SATZ", 0.05)
+
+        return round(zwischensumme * gesamtrabatt_faktor, 2)
+
+    def endsumme_berechnen(self) -> float:
+        """/F13/: Berechnet den finalen Zahlbetrag."""
+        endsumme = self.zwischensumme_berechnen() - self.rabatt_berechnen()
+        return max(0.0, round(endsumme, 2))
+
+    def rechnung_erstellen(self, dateipfad: str | None = None) -> str:
+        """Formatiert den Rechnungstext und speichert ihn in rechnung.txt."""
+        pfad = dateipfad or getattr(config, "RECHNUNG_PFAD", "rechnung.txt")
+        jetzt = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
+
+        kunden_info = "Gastkunde (Keine Kundendaten hinterlegt)"
+        if self.kunde:
+            kunden_info = (
+                f"Kundennr.: {getattr(self.kunde, 'kundennummer', 'N/A')}\n"
+                f"Name:      {self.kunde.name}\n"
+                f"Adresse:   {self.kunde.strasse}, {self.kunde.plz} {self.kunde.ort}"
+            )
+
+        trenner = "=" * 50
+        zeilen = [
+            trenner,
+            "              WI FANSHOP - RECHNUNG              ",
+            trenner,
+            f"Datum: {jetzt}",
+            trenner,
+            "KUNDENINFORMATION:",
+            kunden_info,
+            trenner,
+            f"{'Menge':<6}{'Artikel':<24}{'Größe':<8}{'Gesamt':>10}",
+            "-" * 50,
+        ]
+
+        for pos in self.warenkorb.positionen:
+            titel = pos.artikel.titel[:22]
+            groesse = getattr(pos, "groesse", "-") or "-"
+            pos_preis = pos.positions_gesamtpreis() if hasattr(pos, "positions_gesamtpreis") else pos.artikel.preis * pos.menge
+            zeilen.append(f"{pos.menge:<6}{titel:<24}{groesse:<8}{pos_preis:>9.2f} €")
+
+        zeilen.extend([
+            "-" * 50,
+            f"Zwischensumme:{self.zwischensumme_berechnen():>36.2f} €",
+            f"Rabatt:       {-self.rabatt_berechnen():>36.2f} €",
+            trenner,
+            f"GESAMTSUMME:  {self.endsumme_berechnen():>36.2f} €",
+            trenner,
+            "       Vielen Dank für Ihren Einkauf!            ",
+            trenner,
+        ])
+
+        rechnung_text = "\n".join(zeilen)
+        with open(pfad, "w", encoding="utf-8") as f:
+            f.write(rechnung_text)
+
+        return rechnung_text
+
+    def bestellen(self, db_manager=None) -> bool:
+        """
+        /F14/: Führt die Bestellung aus, speichert sie in der DB,
+        schreibt die Rechnung und leert den Warenkorb.
+        """
+        if not self.warenkorb.positionen:
+            raise ValueError("Der Warenkorb ist leer.")
+
+        db = db_manager or self.db or database
+        gesamtbetrag = self.endsumme_berechnen()
+        kundennummer = self.kunde.kundennummer if self.kunde else "GAST"
+
+        # 1. Transaktion in DB ausführen
+        db.bestellung_speichern(kundennummer, gesamtbetrag, self.warenkorb.positionen)
+
+        # 2. Rechnungsdatei generieren
+        self.rechnung_erstellen()
+
+        # 3. Warenkorb leeren
+        self.warenkorb.leeren() if hasattr(self.warenkorb, "leeren") else setattr(self.warenkorb, "positionen", [])
+        return True
+
+
+if __name__ == "__main__":
+    # Schneller Selbsttest für Person 2:
+    database.db_initialisieren()
+    database.beispieldaten_einfuegen()
+
+    shop = ShopBackend()
+    kunden = database.alle_kunden_laden()
+    artikel = database.alle_artikel_laden()
+
+    if kunden:
+        shop.set_kunde(kunden[0])
+    if artikel:
+        shop.artikel_hinzufuegen(artikel[0], menge=2)
+
+    print(f"Zwischensumme: {shop.zwischensumme_berechnen()} €")
+    print(f"Rabatt:        {shop.rabatt_berechnen()} €")
+    print(f"Endsumme:      {shop.endsumme_berechnen()} €")
+
+    shop.bestellen()
+    print("✅ Test-Bestellung erfolgreich verbucht und rechnung.txt erzeugt!")  #
+if __name__ == "__main__":
+    print("--- Starte Backend-Test ---")
+    database.db_initialisieren()
+    database.beispieldaten_einfuegen()
+
+    shop = ShopBackend()
+    kunden = database.alle_kunden_laden()
+    artikel = database.alle_artikel_laden()
+
+    print(f"Gefundene Kunden: {len(kunden)}")
+    print(f"Gefundene Artikel: {len(artikel)}")
+
+    if kunden:
+        shop.set_kunde(kunden[0])
+        print(f"Aktiver Kunde: {kunden[0].name}")
+    else:
+        print("Hinweis: Keine Kunden in der Datenbank vorhanden.")
+
+    if artikel:
+        shop.artikel_hinzufuegen(artikel[0], menge=2)
+        print(f"Artikel hinzugefügt: {artikel[0].titel}")
+    else:
+        print("Hinweis: Keine Artikel in der Datenbank vorhanden.")
+
+    print(f"Zwischensumme: {shop.zwischensumme_berechnen():.2f} €")
+    print(f"Rabatt:        {shop.rabatt_berechnen():.2f} €")
+    print(f"Endsumme:      {shop.endsumme_berechnen():.2f} €")
+
+    if artikel:
+        shop.bestellen()
+        print("✅ Test-Bestellung erfolgreich verbucht und rechnung.txt erzeugt!")
+
+
+=== gui_articles.py ===
+# gui_articles.py - Artikelverwaltung (Person 4)
+import tkinter as tk
+from tkinter import ttk, messagebox
+from datetime import datetime
+import config
+from models import Artikel
+
+
+class ArtikelverwaltungView(tk.Frame):
+    def __init__(self, parent, db_manager):
+        super().__init__(parent, bg="#ECF0F1")
+        self.db = db_manager
+        self._erstelle_ui()
+        self.lade_daten()
+
+    def _erstelle_ui(self):
+        # Titel
+        tk.Label(self, text="⚙️ Artikelverwaltung & Inventar (Silicon Valley FOMO-System)",
+                 font=("Arial", 16, "bold"), bg="#ECF0F1").pack(pady=10)
+
+        # --- Eingabe-Formular ---
+        form_frame = tk.LabelFrame(self, text="Neuen Artikel anlegen / bearbeiten", bg="#ECF0F1", padx=10, pady=10)
+        form_frame.pack(fill=tk.X, padx=15, pady=5)
+
+        tk.Label(form_frame, text="Titel:", bg="#ECF0F1").grid(row=0, column=0, sticky="w", pady=2)
+        self.ent_titel = tk.Entry(form_frame, width=25)
+        self.ent_titel.grid(row=0, column=1, padx=5, pady=2)
+
+        tk.Label(form_frame, text="Kategorie:", bg="#ECF0F1").grid(row=0, column=2, sticky="w", pady=2, padx=(15, 0))
+        self.ent_kat = tk.Entry(form_frame, width=20)
+        self.ent_kat.grid(row=0, column=3, padx=5, pady=2)
+
+        tk.Label(form_frame, text="Preis (€):", bg="#ECF0F1").grid(row=1, column=0, sticky="w", pady=2)
+        self.ent_preis = tk.Entry(form_frame, width=15)
+        self.ent_preis.grid(row=1, column=1, sticky="w", padx=5, pady=2)
+
+        tk.Label(form_frame, text="Lagerbestand:", bg="#ECF0F1").grid(row=1, column=2, sticky="w", pady=2, padx=(15, 0))
+        self.ent_bestand = tk.Entry(form_frame, width=10)
+        self.ent_bestand.grid(row=1, column=3, sticky="w", padx=5, pady=2)
+
+        # Buttons
+        btn_frame = tk.Frame(form_frame, bg="#ECF0F1")
+        btn_frame.grid(row=2, column=0, columnspan=4, pady=10, sticky="w")
+
+        tk.Button(btn_frame, text="💾 Artikel speichern", bg="#27AE60", fg="white", command=self.artikel_speichern).pack(
+            side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="🗑️ Artikel löschen", bg="#E74C3C", fg="white", command=self.artikel_loeschen).pack(
+            side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="🧹 Felder leeren", command=self.felder_leeren).pack(side=tk.LEFT, padx=5)
+
+        # --- Artikel-Tabelle ---
+        table_frame = tk.Frame(self, bg="#ECF0F1")
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=10)
+
+        cols = ("id", "titel", "kategorie", "preis", "bestand")
+        self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=12)
+        self.tree.heading("id", text="ID")
+        self.tree.heading("titel", text="Titel")
+        self.tree.heading("kategorie", text="Kategorie")
+        self.tree.heading("preis", text="Preis (€)")
+        self.tree.heading("bestand", text="Bestand")
+
+        self.tree.column("id", width=40, anchor="center")
+        self.tree.column("titel", width=250)
+        self.tree.column("preis", width=80, anchor="e")
+        self.tree.column("bestand", width=80, anchor="center")
+
+        # FOMO Tag konfigurieren (Rote Warnung bei niedrigem Bestand)
+        self.tree.tag_configure("low_stock", background="#FADBD8", foreground="#C0392B")
+
+        self.tree.pack(fill=tk.BOTH, expand=True)
+
+    def lade_daten(self):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        artikel_liste = self.db.alle_artikel_laden()
+        schwelle = getattr(config, "NIEDRIGER_BESTAND_SCHWELLE", 10)
+
+        for art in artikel_liste:
+            # Marketing Logic: Rote Markierung, wenn Bestand unter der Schwelle liegt
+            tag = ("low_stock",) if art.lagerbestand < schwelle else ()
+            self.tree.insert("", tk.END, values=(
+                art.id, art.titel, art.kategorie, f"{art.preis:.2f}", art.lagerbestand
+            ), tags=tag)
+
+    def artikel_speichern(self):
+        try:
+            titel = self.ent_titel.get().strip()
+            kat = self.ent_kat.get().strip()
+            preis = float(self.ent_preis.get())
+            bestand = int(self.ent_bestand.get())
+            datum = datetime.now().strftime("%Y-%m-%d")
+
+            if not titel or not kat:
+                messagebox.showwarning("Fehler", "Titel und Kategorie dürfen nicht leer sein.")
+                return
+
+            neuer_artikel = Artikel(
+                id=None, titel=titel, beschreibung="", kategorie=kat,
+                preis=preis, rabattsatz=0.0, lagerbestand=bestand, erstellungsdatum=datum
+            )
+            self.db.artikel_hinzufuegen(neuer_artikel)
+            self.lade_daten()
+            self.felder_leeren()
+            messagebox.showinfo("Erfolg", "Artikel erfolgreich gespeichert!")
+        except ValueError:
+            messagebox.showerror("Fehler", "Bitte gültige Zahlen für Preis und Bestand eingeben.")
+
+    def artikel_loeschen(self):
+        selektiert = self.tree.selection()
+        if not selektiert:
+            messagebox.showwarning("Hinweis", "Bitte einen Artikel aus der Tabelle auswählen.")
+            return
+
+        artikel_id = int(self.tree.item(selektiert[0])["values"][0])
+        self.db.artikel_loeschen(artikel_id)
+        self.lade_daten()
+        messagebox.showinfo("Erfolg", "Artikel wurde gelöscht.")
+
+    def felder_leeren(self):
+        self.ent_titel.delete(0, tk.END)
+        self.ent_kat.delete(0, tk.END)
+        self.ent_preis.delete(0, tk.END)
+        self.ent_bestand.delete(0, tk.END)
+
+=== gui_customers.py ===
+# gui_customers.py - Kundenverwaltung (Person 4)
+import tkinter as tk
+from tkinter import ttk, messagebox
+import config
+from models import Kunde
+
+
+class KundenverwaltungView(tk.Frame):
+    def __init__(self, parent, db_manager):
+        super().__init__(parent, bg="#ECF0F1")
+        self.db = db_manager
+        self._erstelle_ui()
+        self.lade_daten()
+
+    def _erstelle_ui(self):
+        tk.Label(self, text="👥 Kundenverwaltung (Smart Domain-Gating)",
+                 font=("Arial", 16, "bold"), bg="#ECF0F1").pack(pady=10)
+
+        # --- Eingabe-Formular ---
+        form_frame = tk.LabelFrame(self, text="Neuen Kunden anlegen", bg="#ECF0F1", padx=10, pady=10)
+        form_frame.pack(fill=tk.X, padx=15, pady=5)
+
+        tk.Label(form_frame, text="Kundennummer:", bg="#ECF0F1").grid(row=0, column=0, sticky="w", pady=2)
+        self.ent_knr = tk.Entry(form_frame, width=15)
+        self.ent_knr.grid(row=0, column=1, sticky="w", padx=5, pady=2)
+
+        tk.Label(form_frame, text="Name:", bg="#ECF0F1").grid(row=0, column=2, sticky="w", pady=2, padx=(15, 0))
+        self.ent_name = tk.Entry(form_frame, width=25)
+        self.ent_name.grid(row=0, column=3, padx=5, pady=2)
+
+        tk.Label(form_frame, text="E-Mail:", bg="#ECF0F1").grid(row=1, column=0, sticky="w", pady=2)
+        self.ent_email = tk.Entry(form_frame, width=25)
+        self.ent_email.grid(row=1, column=1, columnspan=2, sticky="w", padx=5, pady=2)
+        # Event-Binding für Smart Domain-Gating während des Tippens
+        self.ent_email.bind("<KeyRelease>", self.check_uni_domain)
+
+        # Weitere Adressfelder
+        tk.Label(form_frame, text="Straße:", bg="#ECF0F1").grid(row=2, column=0, sticky="w", pady=2)
+        self.ent_str = tk.Entry(form_frame, width=25)
+        self.ent_str.grid(row=2, column=1, sticky="w", padx=5, pady=2)
+
+        tk.Label(form_frame, text="PLZ / Ort:", bg="#ECF0F1").grid(row=2, column=2, sticky="w", pady=2, padx=(15, 0))
+        plz_ort_frame = tk.Frame(form_frame, bg="#ECF0F1")
+        plz_ort_frame.grid(row=2, column=3, sticky="w")
+        self.ent_plz = tk.Entry(plz_ort_frame, width=7)
+        self.ent_plz.pack(side=tk.LEFT, padx=(0, 5))
+        self.ent_ort = tk.Entry(plz_ort_frame, width=15)
+        self.ent_ort.pack(side=tk.LEFT)
+
+        self.var_student = tk.BooleanVar()
+        self.chk_student = tk.Checkbutton(form_frame, text="Ist Student (10% Rabatt)", variable=self.var_student,
+                                          bg="#ECF0F1")
+        self.chk_student.grid(row=3, column=0, columnspan=2, sticky="w", pady=5)
+
+        # Marketing Alert Label (wird sichtbar bei htwsaar.de)
+        self.lbl_alert = tk.Label(form_frame, text="", font=("Arial", 10, "bold"), bg="#ECF0F1")
+        self.lbl_alert.grid(row=3, column=2, columnspan=2, sticky="w")
+
+        # Buttons
+        btn_frame = tk.Frame(form_frame, bg="#ECF0F1")
+        btn_frame.grid(row=4, column=0, columnspan=4, pady=10, sticky="w")
+
+        tk.Button(btn_frame, text="💾 Kunden speichern", bg="#2980B9", fg="white", command=self.kunde_speichern).pack(
+            side=tk.LEFT, padx=5)
+        tk.Button(btn_frame, text="🗑️ Kunden löschen", bg="#E74C3C", fg="white", command=self.kunde_loeschen).pack(
+            side=tk.LEFT, padx=5)
+
+        # --- Kunden-Tabelle ---
+        table_frame = tk.Frame(self, bg="#ECF0F1")
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=10)
+
+        cols = ("knr", "name", "email", "ort", "student")
+        self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=10)
+        self.tree.heading("knr", text="KundenNr.")
+        self.tree.heading("name", text="Name")
+        self.tree.heading("email", text="E-Mail")
+        self.tree.heading("ort", text="Ort")
+        self.tree.heading("student", text="Student?")
+
+        self.tree.column("knr", width=100, anchor="center")
+        self.tree.column("student", width=80, anchor="center")
+        self.tree.pack(fill=tk.BOTH, expand=True)
+
+    def check_uni_domain(self, event=None):
+        """Marketing Logic: Prüft ob die E-Mail zur Uni gehört (Domain-Gating)"""
+        email = self.ent_email.get().strip().lower()
+        domain = getattr(config, "UNI_DOMAIN", "@htwsaar.de").lower()
+
+        if email.endswith(domain) and len(email) > len(domain):
+            self.var_student.set(True)
+            self.lbl_alert.config(text="🎓 htw saar Mitglied erkannt: Willkommensrabatt aktiv!", fg="#27AE60")
+        else:
+            self.var_student.set(False)
+            self.lbl_alert.config(text="")
+
+    def lade_daten(self):
+        for row in self.tree.get_children():
+            self.tree.delete(row)
+
+        kunden_liste = self.db.alle_kunden_laden()
+        for k in kunden_liste:
+            student_str = "Ja 🎓" if k.ist_student else "Nein"
+            self.tree.insert("", tk.END, values=(k.kundennummer, k.name, k.email, k.ort, student_str))
+
+    def kunde_speichern(self):
+        knr = self.ent_knr.get().strip()
+        name = self.ent_name.get().strip()
+        email = self.ent_email.get().strip()
+        stras = self.ent_str.get().strip()
+        plz = self.ent_plz.get().strip()
+        ort = self.ent_ort.get().strip()
+        ist_stud = self.var_student.get()
+
+        if not knr or not name:
+            messagebox.showwarning("Fehler", "Kundennummer und Name sind Pflichtfelder.")
+            return
+
+        neuer_kunde = Kunde(
+            kundennummer=knr, name=name, strasse=stras,
+            plz=plz, ort=ort, ist_student=ist_stud, email=email
+        )
+        self.db.kunde_hinzufuegen(neuer_kunde)
+        self.lade_daten()
+        messagebox.showinfo("Erfolg", f"Kunde {name} wurde gespeichert!")
+
+    def kunde_loeschen(self):
+        selektiert = self.tree.selection()
+        if not selektiert:
+            messagebox.showwarning("Hinweis", "Bitte einen Kunden auswählen.")
+            return
+
+        knr = self.tree.item(selektiert[0])["values"][0]
+        self.db.kunde_loeschen(str(knr))
+        self.lade_daten()
+        messagebox.showinfo("Erfolg", "Kunde wurde gelöscht.")
+
+=== gui_reports.py ===
+# gui_reports.py - Admin-Dashboard und Berichte (Person 5)
+import tkinter as tk
+from tkinter import ttk
+import database
+
+class ReportsWindow(tk.Frame):
+    def __init__(self, parent, db):
+        super().__init__(parent, bg="#ECF0F1")
+        self.db = db
+
+        # Titel
+        self.titel_label = tk.Label(self, text="📊 Admin-Dashboard & Berichte", font=("Arial", 16, "bold"), bg="#ECF0F1")
+        self.titel_label.pack(pady=10)
+
+        # --- KPI-Kacheln ---
+        self.kpi_frame = tk.Frame(self, bg="#ECF0F1")
+        self.kpi_frame.pack(pady=10, fill="x")
+
+        self.kachel_umsatz = tk.Label(self.kpi_frame, text="Gesamtumsatz:\n-", bg="white", font=("Arial", 11), width=20, height=3, relief=tk.RIDGE, bd=1)
+        self.kachel_umsatz.pack(side="left", padx=10, expand=True)
+
+        self.kachel_bestellungen = tk.Label(self.kpi_frame, text="Bestellungen:\n-", bg="white", font=("Arial", 11), width=20, height=3, relief=tk.RIDGE, bd=1)
+        self.kachel_bestellungen.pack(side="left", padx=10, expand=True)
+
+        self.kachel_bestseller = tk.Label(self.kpi_frame, text="Bestseller:\n-", bg="white", font=("Arial", 11), width=20, height=3, relief=tk.RIDGE, bd=1)
+        self.kachel_bestseller.pack(side="left", padx=10, expand=True)
+
+        # --- Zeitraum-Auswahl ---
+        self.zeitraum_frame = tk.Frame(self, bg="#ECF0F1")
+        self.zeitraum_frame.pack(pady=20)
+
+        tk.Label(self.zeitraum_frame, text="Startdatum (TT.MM.JJJJ):", bg="#ECF0F1").pack(side="left", padx=5)
+        self.start_entry = tk.Entry(self.zeitraum_frame, width=12)
+        self.start_entry.pack(side="left", padx=5)
+
+        tk.Label(self.zeitraum_frame, text="Enddatum:", bg="#ECF0F1").pack(side="left", padx=5)
+        self.ende_entry = tk.Entry(self.zeitraum_frame, width=12)
+        self.ende_entry.pack(side="left", padx=5)
+
+        self.aktualisieren_btn = tk.Button(self.zeitraum_frame, text="Aktualisieren", command=self.daten_laden, bg="#2980B9", fg="white")
+        self.aktualisieren_btn.pack(side="left", padx=15)
+
+        # --- Detailbericht (Tabelle) ---
+        self.tabelle_frame = tk.Frame(self, bg="#ECF0F1")
+        self.tabelle_frame.pack(pady=10, fill="both", expand=True, padx=20)
+
+        tk.Label(self.tabelle_frame, text="Artikel nach Umsatzanteil", font=("Arial", 12, "bold"), bg="#ECF0F1").pack(anchor="w", pady=5)
+
+        spalten = ("artikel", "menge", "umsatz")
+        self.tabelle = ttk.Treeview(self.tabelle_frame, columns=spalten, show="headings", height=8)
+        self.tabelle.heading("artikel", text="Artikelname")
+        self.tabelle.heading("menge", text="Verkaufte Menge")
+        self.tabelle.heading("umsatz", text="Umsatzanteil (€)")
+
+        self.tabelle.column("artikel", width=300)
+        self.tabelle.column("menge", width=120, anchor="center")
+        self.tabelle.column("umsatz", width=120, anchor="e")
+
+        self.tabelle.pack(fill="both", expand=True)
+
+        # Daten beim Start laden
+        self.daten_laden()
+
+    def daten_laden(self):
+        start = self.start_entry.get()
+        ende = self.ende_entry.get()
+        try:
+            umsatz = self.db.get_gesamtumsatz(start, ende)
+            anzahl = self.db.get_bestellungen_anzahl(start, ende)
+            artikel_daten = self.db.get_artikel_umsatzanteile(start, ende)
+
+            self.kachel_umsatz.config(text=f"Gesamtumsatz:\n{umsatz:.2f} €")
+            self.kachel_bestellungen.config(text=f"Bestellungen:\n{anzahl}")
+
+            if artikel_daten:
+                bestseller = artikel_daten[0].get("titel", "Unbekannt")
+                self.kachel_bestseller.config(text=f"Bestseller:\n{bestseller}")
+            else:
+                self.kachel_bestseller.config(text="Bestseller:\n-")
+
+            for row in self.tabelle.get_children():
+                self.tabelle.delete(row)
+
+            for art in artikel_daten:
+                name = art.get("titel", "")
+                menge = art.get("menge", 0)
+                umsatz_anteil = art.get("umsatz", 0.0)
+                self.tabelle.insert("", tk.END, values=(name, menge, f"{umsatz_anteil:.2f}"))
+        except Exception as e:
+            print(f"Hinweis zu den Datenbank-Methoden: {e}")
+
+# --- TEST-MOTOR ---
+if __name__ == "__main__":
+    try:
+        from database import DatabaseManager
+        db_instanz = DatabaseManager()
+    except Exception as e:
+        print(f"Konnte Datenbank nicht laden: {e}")
+        db_instanz = None
+
+    root = tk.Tk()
+    root.title("Testansicht - Admin Dashboard")
+    root.geometry("800x600")
+
+    app = ReportsWindow(root, db=db_instanz)
+    app.pack(fill="both", expand=True)
+    root.mainloop()
+
+=== gui_main.py ===
+import tkinter as tk
+from tkinter import ttk, messagebox
+import config
+from backend import ShopBackend
+import database
+from gui_articles import ArtikelverwaltungView
+from gui_customers import KundenverwaltungView
+from gui_reports import ReportsWindow
+
+
+class MainWindow(tk.Tk):
+    """Hauptfenster der Kassenanwendung (Person 3)."""
+
+    def __init__(self, db_manager=None):
+        super().__init__()
+        self.db = db_manager or database
+        self.backend = ShopBackend(db_manager=self.db)
+
+        self.title("WI Fanshop- Kassen & Checkout")
+        self.geometry("1100x700")
+        self.minsize(950, 600)
+
+        # 1. Automatische Initialisierung der Datenbank sicherstellen
+        if hasattr(self.db, "db_initialisieren"):
+            self.db.db_initialisieren()
+        if hasattr(self.db, "beispieldaten_einfuegen"):
+            self.db.beispieldaten_einfuegen()
+
+        self._erstelle_layout()
+        self.zeige_view("kasse")
+
+    def _erstelle_layout(self):
+        # 1. Sidebar links
+        self.sidebar = tk.Frame(self, bg="#2C3E50", width=200)
+        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
+        self.sidebar.pack_propagate(False)
+
+        tk.Label(
+            self.sidebar,
+            text=getattr(config, "APP_TITLE", "WI FANSHOP"),
+            fg="white",
+            bg="#2C3E50",
+            font=("Arial", 16, "bold")
+        ).pack(pady=20)
+
+        # Navigationsbuttons
+        self._nav_btn("🛒 Kasse / Checkout", lambda: self.zeige_view("kasse"))
+        self._nav_btn("⚙️ Artikelverwaltung", lambda: self.zeige_view("artikel"))
+        self._nav_btn("👥 Kundenverwaltung", lambda: self.zeige_view("kunden"))
+        self._nav_btn("📊 Berichte / Dashboard", lambda: self.zeige_view("berichte"))
+
+        # 2. Inhaltsbereich rechts
+        self.content_area = tk.Frame(self, bg="#ECF0F1")
+        self.content_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+    def _nav_btn(self, text, command):
+        btn = tk.Button(
+            self.sidebar,
+            text=text,
+            command=command,
+            bg="#34495E",
+            fg="white",
+            relief=tk.FLAT,
+            font=("Arial", 11),
+            anchor="w",
+            padx=15,
+            pady=10
+        )
+        btn.pack(fill=tk.X, padx=8, pady=4)
+
+    def zeige_view(self, view_name: str):
+        for widget in self.content_area.winfo_children():
+            widget.destroy()
+
+        if view_name == "kasse":
+            view = KassenView(self.content_area, self.backend, self.db)
+            view.pack(fill=tk.BOTH, expand=True)
+        elif view_name == "artikel":
+            view = ArtikelverwaltungView(self.content_area, self.db)
+            view.pack(fill=tk.BOTH, expand=True)
+        elif view_name == "kunden":
+            view = KundenverwaltungView(self.content_area, self.db)
+            view.pack(fill=tk.BOTH, expand=True)
+        elif view_name == "berichte":
+            view = ReportsWindow(self.content_area, self.db)
+            view.pack(fill=tk.BOTH, expand=True)
+
+    def _zeige_platzhalter(self, titel):
+        tk.Label(
+            self.content_area,
+            text=f"{titel}\n\n(Dieses Modul wird von einem Teammitglied erstellt)",
+            font=("Arial", 14),
+            bg="#ECF0F1",
+            fg="#7F8C8D"
+        ).pack(expand=True)
+
+class KassenView(tk.Frame):
+    """Kassen- und Checkout-Ansicht (Person 3)."""
+
+    def __init__(self, parent, backend: ShopBackend, db):
+        super().__init__(parent, bg="#ECF0F1")
+        self.backend = backend
+        self.db = db
+
+        self._erstelle_ui()
+        self._lade_kunden()
+        self._lade_artikel()
+        self._aktualisiere_warenkorb_view()
+
+    def _erstelle_ui(self):
+        # Links: Produktkatalog & Suche | Rechts: Warenkorb & Kasse
+        self.left_frame = tk.Frame(self, bg="#ECF0F1", padx=15, pady=15)
+        self.left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.right_frame = tk.Frame(self, bg="white", width=420, padx=15, pady=15, relief=tk.RIDGE, bd=1)
+        self.right_frame.pack(side=tk.RIGHT, fill=tk.Y)
+        self.right_frame.pack_propagate(False)
+
+        self._baue_katalog_bereich()
+        self._baue_checkout_bereich()
+
+    # --- Linke Spalte ---
+    def _baue_katalog_bereich(self):
+        filter_bar = tk.Frame(self.left_frame, bg="#ECF0F1")
+        filter_bar.pack(fill=tk.X, pady=(0, 10))
+
+        tk.Label(filter_bar, text="Artikelsuche:", bg="#ECF0F1", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
+        self.such_entry = tk.Entry(filter_bar, width=22)
+        self.such_entry.pack(side=tk.LEFT, padx=5)
+
+        suchen_btn = tk.Button(filter_bar, text="🔍 Suchen", command=self._artikel_filtern, bg="#34495E", fg="white")
+        suchen_btn.pack(side=tk.LEFT, padx=3)
+
+        reset_btn = tk.Button(filter_bar, text="Alle", command=lambda: self._lade_artikel(), bg="#BDC3C7")
+        reset_btn.pack(side=tk.LEFT, padx=3)
+
+        columns = ("id", "titel", "kategorie", "preis", "bestand")
+        self.artikel_tree = ttk.Treeview(self.left_frame, columns=columns, show="headings", height=15)
+        self.artikel_tree.heading("id", text="ID")
+        self.artikel_tree.heading("titel", text="Titel")
+        self.artikel_tree.heading("kategorie", text="Kategorie")
+        self.artikel_tree.heading("preis", text="Preis (€)")
+        self.artikel_tree.heading("bestand", text="Bestand")
+
+        self.artikel_tree.column("id", width=40, anchor="center")
+        self.artikel_tree.column("titel", width=220)
+        self.artikel_tree.column("kategorie", width=110)
+        self.artikel_tree.column("preis", width=80, anchor="e")
+        self.artikel_tree.column("bestand", width=70, anchor="center")
+        self.artikel_tree.pack(fill=tk.BOTH, expand=True)
+
+        action_bar = tk.Frame(self.left_frame, bg="#ECF0F1")
+        action_bar.pack(fill=tk.X, pady=10)
+
+        tk.Label(action_bar, text="Menge:", bg="#ECF0F1").pack(side=tk.LEFT)
+        self.menge_spin = tk.Spinbox(action_bar, from_=1, to=100, width=5)
+        self.menge_spin.pack(side=tk.LEFT, padx=5)
+
+        add_btn = tk.Button(
+            action_bar,
+            text="➕ In den Warenkorb",
+            bg="#27AE60",
+            fg="white",
+            font=("Arial", 10, "bold"),
+            padx=10,
+            pady=4,
+            command=self._artikel_zu_warenkorb
+        )
+        add_btn.pack(side=tk.LEFT, padx=10)
+
+    # --- Rechte Spalte ---
+    def _baue_checkout_bereich(self):
+        tk.Label(self.right_frame, text="Kunde auswählen:", bg="white", font=("Arial", 10, "bold")).pack(anchor="w")
+        self.kunden_combobox = ttk.Combobox(self.right_frame, state="readonly")
+        self.kunden_combobox.pack(fill=tk.X, pady=(3, 15))
+        self.kunden_combobox.bind("<<ComboboxSelected>>", self._kunde_gewaehlt)
+
+        tk.Label(self.right_frame, text="Aktueller Warenkorb:", bg="white", font=("Arial", 10, "bold")).pack(anchor="w")
+
+        cart_cols = ("id", "titel", "menge", "summe")
+        self.cart_tree = ttk.Treeview(self.right_frame, columns=cart_cols, show="headings", height=8)
+        self.cart_tree.heading("id", text="ID")
+        self.cart_tree.heading("titel", text="Artikel")
+        self.cart_tree.heading("menge", text="Menge")
+        self.cart_tree.heading("summe", text="Gesamt")
+
+        self.cart_tree.column("id", width=30, anchor="center")
+        self.cart_tree.column("titel", width=160)
+        self.cart_tree.column("menge", width=60, anchor="center")
+        self.cart_tree.column("summe", width=80, anchor="e")
+        self.cart_tree.pack(fill=tk.X, pady=5)
+
+        del_btn = tk.Button(
+            self.right_frame,
+            text="🗑️ Position entfernen",
+            command=self._position_entfernen,
+            bg="#E74C3C",
+            fg="white"
+        )
+        del_btn.pack(anchor="w", pady=(0, 10))
+
+        self.lbl_zwischensumme = tk.Label(self.right_frame, text="Zwischensumme: 0.00 €", bg="white", anchor="e")
+        self.lbl_zwischensumme.pack(fill=tk.X, pady=1)
+
+        self.lbl_rabatt = tk.Label(self.right_frame, text="Rabatt: 0.00 €", bg="white", fg="#C0392B", anchor="e")
+        self.lbl_rabatt.pack(fill=tk.X, pady=1)
+
+        self.lbl_gesamt = tk.Label(self.right_frame, text="Gesamtsumme: 0.00 €", bg="white", font=("Arial", 12, "bold"), anchor="e")
+        self.lbl_gesamt.pack(fill=tk.X, pady=(5, 15))
+
+        order_btn = tk.Button(
+            self.right_frame,
+            text="💳 Jetzt Bestellen",
+            bg="#2980B9",
+            fg="white",
+            font=("Arial", 12, "bold"),
+            pady=8,
+            command=self._bestellung_ausfuehren
+        )
+        order_btn.pack(fill=tk.X)
+
+    # --- Datenladen & Aktionen ---
+    def _lade_kunden(self):
+        if hasattr(self.db, "get_all_kunden"):
+            kunden = self.db.get_all_kunden()
+        elif hasattr(self.db, "alle_kunden_laden"):
+            kunden = self.db.alle_kunden_laden()
+        else:
+            kunden = []
+
+        self.kunden_liste = {f"{k.name} ({getattr(k, 'kundennummer', getattr(k, 'id', ''))})": k for k in kunden}
+        self.kunden_combobox["values"] = ["Gastbestellung"] + list(self.kunden_liste.keys())
+        self.kunden_combobox.current(0)
+
+    def _lade_artikel(self, artikel_liste=None):
+        for item in self.artikel_tree.get_children():
+            self.artikel_tree.delete(item)
+
+        if artikel_liste is not None:
+            artikeln = artikel_liste
+        elif hasattr(self.db, "alle_artikel_laden"):
+            artikeln = self.db.alle_artikel_laden()
+        elif hasattr(self.db, "get_all_artikel"):
+            artikeln = self.db.get_all_artikel()
+        elif hasattr(self.db, "artikel_laden"):
+            artikeln = self.db.artikel_laden()
+        else:
+            print("⚠️ Keine passende Funktion zum Laden der Artikel in database.py gefunden!")
+            artikeln = []
+
+        print(f"📦 Geladene Artikel aus der DB: {len(artikeln)}")
+
+        for art in artikeln:
+            print(f"   -> Artikel: {getattr(art, 'titel', getattr(art, 'name', 'Unbekannt'))}")
+            art_id = getattr(art, "id", getattr(art, "artikel_id", 0))
+            titel = getattr(art, "titel", getattr(art, "name", "-"))
+            kategorie = getattr(art, "kategorie", "-")
+            preis = getattr(art, "preis", 0.0)
+            bestand = getattr(art, "lagerbestand", getattr(art, "bestand", 0))
+
+            self.artikel_tree.insert("", tk.END, values=(
+                art_id, titel, kategorie, f"{preis:.2f}", bestand
+            ))
+    def _artikel_filtern(self):
+        text = self.such_entry.get().strip()
+        if hasattr(self.db, "suche_artikel"):
+            gefiltert = self.db.suche_artikel(suchtext=text if text else None)
+        elif hasattr(self.db, "artikel_suchen"):
+            gefiltert = self.db.artikel_suchen(text)
+        else:
+            gefiltert = []
+        self._lade_artikel(gefiltert)
+
+    def _kunde_gewaehlt(self, event=None):
+        auswahl = self.kunden_combobox.get()
+        kunde = self.kunden_liste.get(auswahl, None)
+        self.backend.set_kunde(kunde)
+        self._aktualisiere_preise()
+
+    def _artikel_zu_warenkorb(self):
+        selektiert = self.artikel_tree.selection()
+        if not selektiert:
+            messagebox.showwarning("Hinweis", "Bitte wählen Sie zuerst einen Artikel aus.")
+            return
+
+        artikel_id = int(self.artikel_tree.item(selektiert[0])["values"][0])
+        menge = int(self.menge_spin.get())
+
+        if hasattr(self.db, "get_artikel_by_id"):
+            artikel = self.db.get_artikel_by_id(artikel_id)
+        elif hasattr(self.db, "artikel_nach_id_laden"):
+            artikel = self.db.artikel_nach_id_laden(artikel_id)
+        else:
+            messagebox.showerror("Fehler", "Artikel konnte nicht geladen werden.")
+            return
+
+        try:
+            self.backend.artikel_hinzufuegen(artikel, menge)
+            self._aktualisiere_warenkorb_view()
+        except ValueError as e:
+            messagebox.showerror("Bestandsfehler", str(e))
+
+    def _position_entfernen(self):
+        selektiert = self.cart_tree.selection()
+        if not selektiert:
+            messagebox.showwarning("Hinweis", "Bitte wählen Sie eine Position aus dem Warenkorb aus.")
+            return
+
+        artikel_id = int(self.cart_tree.item(selektiert[0])["values"][0])
+        self.backend.artikel_entfernen(artikel_id)
+        self._aktualisiere_warenkorb_view()
+
+    def _aktualisiere_warenkorb_view(self):
+        for item in self.cart_tree.get_children():
+            self.cart_tree.delete(item)
+
+        for pos in self.backend.warenkorb.positionen:
+            art_id = getattr(pos.artikel, "artikel_id", getattr(pos.artikel, "id", 0))
+            preis = pos.positions_gesamtpreis() if hasattr(pos, "positions_gesamtpreis") else pos.artikel.preis * pos.menge
+            self.cart_tree.insert("", tk.END, values=(
+                art_id, pos.artikel.titel, pos.menge, f"{preis:.2f} €"
+            ))
+
+        self._aktualisiere_preise()
+
+    def _aktualisiere_preise(self):
+        zw = self.backend.zwischensumme_berechnen()
+        rab = self.backend.rabatt_berechnen()
+        end = self.backend.endsumme_berechnen()
+
+        self.lbl_zwischensumme.config(text=f"Zwischensumme: {zw:.2f} €")
+        self.lbl_rabatt.config(text=f"Rabatt: -{rab:.2f} €")
+        self.lbl_gesamt.config(text=f"Gesamtsumme: {end:.2f} €")
+
+    def _bestellung_ausfuehren(self):
+        try:
+            self.backend.bestellen()
+            messagebox.showinfo("Erfolg", "Bestellung erfolgreich abgeschlossen!\nRechnung rechnung.txt wurde erstellt.")
+            self._aktualisiere_warenkorb_view()
+            self._lade_artikel()
+        except ValueError as e:
+            messagebox.showerror("Fehler beim Bestellen", str(e))
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Bestellung konnte nicht durchgeführt werden:\n{str(e)}")
+
+
+if __name__ == "__main__":
+    # Datenbank sicher initialisieren
+    if hasattr(database, "db_initialisieren"):
+        database.db_initialisieren()
+    if hasattr(database, "beispieldaten_einfuegen"):
+        database.beispieldaten_einfuegen()
+
+    app = MainWindow(database)
+    app.mainloop()
