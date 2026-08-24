@@ -184,26 +184,43 @@ if __name__ == "__main__":
     # Schneller Selbsttest für Person 2:
     database.db_initialisieren()
     database.beispieldaten_einfuegen()
+<<<<<<< HEAD
 
     shop = ShopBackend()
     kunden = database.alle_kunden_laden()
     artikel = database.alle_artikel_laden()
 
+=======
+    
+    shop = ShopBackend()
+    kunden = database.alle_kunden_laden()
+    artikel = database.alle_artikel_laden()
+    
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     if kunden:
         shop.set_kunde(kunden[0])
     if artikel:
         shop.artikel_hinzufuegen(artikel[0], menge=2)
+<<<<<<< HEAD
 
     print(f"Zwischensumme: {shop.zwischensumme_berechnen()} €")
     print(f"Rabatt:        {shop.rabatt_berechnen()} €")
     print(f"Endsumme:      {shop.endsumme_berechnen()} €")
 
+=======
+        
+    print(f"Zwischensumme: {shop.zwischensumme_berechnen()} €")
+    print(f"Rabatt:        {shop.rabatt_berechnen()} €")
+    print(f"Endsumme:      {shop.endsumme_berechnen()} €")
+    
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     shop.bestellen()
     print("✅ Test-Bestellung erfolgreich verbucht und rechnung.txt erzeugt!")  #
 if __name__ == "__main__":
     print("--- Starte Backend-Test ---")
     database.db_initialisieren()
     database.beispieldaten_einfuegen()
+<<<<<<< HEAD
 
     shop = ShopBackend()
     kunden = database.alle_kunden_laden()
@@ -212,6 +229,16 @@ if __name__ == "__main__":
     print(f"Gefundene Kunden: {len(kunden)}")
     print(f"Gefundene Artikel: {len(artikel)}")
 
+=======
+    
+    shop = ShopBackend()
+    kunden = database.alle_kunden_laden()
+    artikel = database.alle_artikel_laden()
+    
+    print(f"Gefundene Kunden: {len(kunden)}")
+    print(f"Gefundene Artikel: {len(artikel)}")
+    
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     if kunden:
         shop.set_kunde(kunden[0])
         print(f"Aktiver Kunde: {kunden[0].name}")
@@ -223,11 +250,19 @@ if __name__ == "__main__":
         print(f"Artikel hinzugefügt: {artikel[0].titel}")
     else:
         print("Hinweis: Keine Artikel in der Datenbank vorhanden.")
+<<<<<<< HEAD
 
     print(f"Zwischensumme: {shop.zwischensumme_berechnen():.2f} €")
     print(f"Rabatt:        {shop.rabatt_berechnen():.2f} €")
     print(f"Endsumme:      {shop.endsumme_berechnen():.2f} €")
 
+=======
+        
+    print(f"Zwischensumme: {shop.zwischensumme_berechnen():.2f} €")
+    print(f"Rabatt:        {shop.rabatt_berechnen():.2f} €")
+    print(f"Endsumme:      {shop.endsumme_berechnen():.2f} €")
+    
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     if artikel:
         shop.bestellen()
         print("✅ Test-Bestellung erfolgreich verbucht und rechnung.txt erzeugt!")
