@@ -294,7 +294,11 @@ def _formatiere_datum_fuer_sql(datum_str: str | None) -> str | None:
 def get_gesamtumsatz(start: str | None = None, ende: str | None = None) -> float:
     start_sql = _formatiere_datum_fuer_sql(start)
     ende_sql = _formatiere_datum_fuer_sql(ende)
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     with get_connection() as conn:
         cursor = conn.cursor()
         query = "SELECT SUM(gesamtbetrag) FROM bestellungen WHERE 1=1"
@@ -312,7 +316,11 @@ def get_gesamtumsatz(start: str | None = None, ende: str | None = None) -> float
 def get_bestellungen_anzahl(start: str | None = None, ende: str | None = None) -> int:
     start_sql = _formatiere_datum_fuer_sql(start)
     ende_sql = _formatiere_datum_fuer_sql(ende)
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     with get_connection() as conn:
         cursor = conn.cursor()
         query = "SELECT COUNT(*) FROM bestellungen WHERE 1=1"
@@ -330,7 +338,11 @@ def get_bestellungen_anzahl(start: str | None = None, ende: str | None = None) -
 def get_artikel_umsatzanteile(start: str | None = None, ende: str | None = None) -> list[dict]:
     start_sql = _formatiere_datum_fuer_sql(start)
     ende_sql = _formatiere_datum_fuer_sql(ende)
+<<<<<<< HEAD
 
+=======
+    
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     with get_connection() as conn:
         cursor = conn.cursor()
         query = """
@@ -346,10 +358,17 @@ def get_artikel_umsatzanteile(start: str | None = None, ende: str | None = None)
         if ende_sql:
             query += " AND b.datum <= ?"
             params.append(f"{ende_sql} 23:59:59")
+<<<<<<< HEAD
 
         query += " GROUP BY bp.artikel_titel ORDER BY gesamt_umsatz DESC"
         cursor.execute(query, params)
 
+=======
+            
+        query += " GROUP BY bp.artikel_titel ORDER BY gesamt_umsatz DESC"
+        cursor.execute(query, params)
+        
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
         ergebnis = []
         for row in cursor.fetchall():
             ergebnis.append({
@@ -413,4 +432,8 @@ class DatabaseManager:
 if __name__ == "__main__":
     db_initialisieren()
     beispieldaten_einfuegen()
+<<<<<<< HEAD
     print("✅ Datenbank erfolgreich initialisiert und mit Testdaten befüllt!")
+=======
+    print("✅ Datenbank erfolgreich initialisiert und mit Testdaten befüllt!")
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d

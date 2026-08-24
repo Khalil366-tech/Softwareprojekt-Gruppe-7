@@ -3,12 +3,9 @@ from tkinter import ttk, messagebox
 import config
 from backend import ShopBackend
 import database
-<<<<<<< HEAD
 from gui_articles import ArtikelverwaltungView
 from gui_customers import KundenverwaltungView
 from gui_reports import ReportsWindow
-=======
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
 
 
 class MainWindow(tk.Tk):
@@ -79,7 +76,6 @@ class MainWindow(tk.Tk):
             view = KassenView(self.content_area, self.backend, self.db)
             view.pack(fill=tk.BOTH, expand=True)
         elif view_name == "artikel":
-<<<<<<< HEAD
             view = ArtikelverwaltungView(self.content_area, self.db)
             view.pack(fill=tk.BOTH, expand=True)
         elif view_name == "kunden":
@@ -88,13 +84,6 @@ class MainWindow(tk.Tk):
         elif view_name == "berichte":
             view = ReportsWindow(self.content_area, self.db)
             view.pack(fill=tk.BOTH, expand=True)
-=======
-            self._zeige_platzhalter("⚙️ Artikelverwaltung (Person 4)")
-        elif view_name == "kunden":
-            self._zeige_platzhalter("👥 Kundenverwaltung (Person 4)")
-        elif view_name == "berichte":
-            self._zeige_platzhalter("📊 Berichte & Dashboard (Person 5)")
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
 
     def _zeige_platzhalter(self, titel):
         tk.Label(
@@ -363,8 +352,4 @@ if __name__ == "__main__":
         database.beispieldaten_einfuegen()
 
     app = MainWindow(database)
-<<<<<<< HEAD
     app.mainloop()
-=======
-    app.mainloop() 
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d

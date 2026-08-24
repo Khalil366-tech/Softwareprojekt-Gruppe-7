@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 
+=======
+>>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
 # models.py
 from datetime import datetime
 
