@@ -5,7 +5,7 @@ import config
 from models import Artikel, Kunde, Bestellung, WarenkorbPosition
 
 # =====================================================================
-# 1. BASISEINSTELLUNGEN & INITIALISIERUNG (Ganz oben)
+# 1. BASISEINSTELLUNGEN & INITIALISIERUNG
 # =====================================================================
 
 def get_connection():
@@ -16,7 +16,7 @@ def get_connection():
 
 
 def db_initialisieren():
-    """Erstellt alle benötigten Tabellen laut Lastenheft (D01, D02, F14, F31)."""
+    """Erstellt alle benötigten Tabellen laut Lastenheft."""
     with get_connection() as conn:
         cursor = conn.cursor()
 
@@ -28,7 +28,7 @@ def db_initialisieren():
             )
         """)
 
-        # Artikel (D01)
+        # Artikel
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS artikel (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -42,7 +42,7 @@ def db_initialisieren():
             )
         """)
 
-        # Kunden (D02)
+        # Kunden
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS kunden (
                 kundennummer TEXT PRIMARY KEY,
@@ -82,7 +82,7 @@ def db_initialisieren():
 
 
 # =====================================================================
-# 2. ARTIKEL-CRUD & SUCHE (Für Person 3 & Person 4)
+# 2. ARTIKEL-CRUD & SUCHE
 # =====================================================================
 
 def alle_artikel_laden() -> list[Artikel]:
@@ -102,8 +102,8 @@ def alle_artikel_laden() -> list[Artikel]:
             ) for row in cursor.fetchall()
         ]
 
+
 def artikel_suchen(suchtext: str = "") -> list[Artikel]:
-    """Ergänzung für gui_main (Person 3): Filtert nach Titel oder Kategorie."""
     with get_connection() as conn:
         cursor = conn.cursor()
         if not suchtext:
@@ -123,6 +123,7 @@ def artikel_suchen(suchtext: str = "") -> list[Artikel]:
             ) for row in cursor.fetchall()
         ]
 
+
 def artikel_nach_id_laden(artikel_id: int) -> Artikel | None:
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -141,6 +142,7 @@ def artikel_nach_id_laden(artikel_id: int) -> Artikel | None:
             erstellungsdatum=row["erstellungsdatum"]
         )
 
+
 def artikel_hinzufuegen(artikel: Artikel) -> int:
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -151,6 +153,7 @@ def artikel_hinzufuegen(artikel: Artikel) -> int:
               artikel.rabattsatz, artikel.lagerbestand, artikel.erstellungsdatum))
         conn.commit()
         return cursor.lastrowid
+
 
 def artikel_aktualisieren(artikel: Artikel):
     with get_connection() as conn:
@@ -163,11 +166,13 @@ def artikel_aktualisieren(artikel: Artikel):
               artikel.rabattsatz, artikel.lagerbestand, artikel.id))
         conn.commit()
 
+
 def artikel_loeschen(artikel_id: int):
     with get_connection() as conn:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM artikel WHERE id = ?", (artikel_id,))
         conn.commit()
+
 
 def lagerbestand_aktualisieren(artikel_id: int, neuer_bestand: int):
     with get_connection() as conn:
@@ -177,7 +182,7 @@ def lagerbestand_aktualisieren(artikel_id: int, neuer_bestand: int):
 
 
 # =====================================================================
-# 3. KUNDEN-CRUD (Für Person 3 & Person 4)
+# 3. KUNDEN-CRUD
 # =====================================================================
 
 def alle_kunden_laden() -> list[Kunde]:
@@ -196,6 +201,7 @@ def alle_kunden_laden() -> list[Kunde]:
             ) for row in cursor.fetchall()
         ]
 
+
 def kunde_nach_nummer_laden(kundennummer: str) -> Kunde | None:
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -213,6 +219,7 @@ def kunde_nach_nummer_laden(kundennummer: str) -> Kunde | None:
             email=row["email"] or ""
         )
 
+
 def kunde_hinzufuegen(kunde: Kunde):
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -223,6 +230,7 @@ def kunde_hinzufuegen(kunde: Kunde):
               1 if kunde.ist_student else 0, kunde.email))
         conn.commit()
 
+
 def kunde_loeschen(kundennummer: str):
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -231,7 +239,7 @@ def kunde_loeschen(kundennummer: str):
 
 
 # =====================================================================
-# 4. BESTELLUNGEN & TRANSAKTIONEN (Für Person 2 & Person 3)
+# 4. BESTELLUNGEN & TRANSAKTIONEN
 # =====================================================================
 
 def bestellung_speichern(kundennummer: str, gesamtbetrag: float, positionen: list[WarenkorbPosition]) -> int:
@@ -260,6 +268,7 @@ def bestellung_speichern(kundennummer: str, gesamtbetrag: float, positionen: lis
         conn.commit()
         return bestell_id
 
+
 def alle_bestellungen_laden() -> list[Bestellung]:
     with get_connection() as conn:
         cursor = conn.cursor()
@@ -275,7 +284,7 @@ def alle_bestellungen_laden() -> list[Bestellung]:
 
 
 # =====================================================================
-# 5. BERICHTE & DASHBOARD (Ergänzung für Person 5 / gui_reports)
+# 5. BERICHTE & DASHBOARD
 # =====================================================================
 
 def _formatiere_datum_fuer_sql(datum_str: str | None) -> str | None:
@@ -291,14 +300,11 @@ def _formatiere_datum_fuer_sql(datum_str: str | None) -> str | None:
     except Exception:
         return None
 
+
 def get_gesamtumsatz(start: str | None = None, ende: str | None = None) -> float:
     start_sql = _formatiere_datum_fuer_sql(start)
     ende_sql = _formatiere_datum_fuer_sql(ende)
-<<<<<<< HEAD
 
-=======
-    
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     with get_connection() as conn:
         cursor = conn.cursor()
         query = "SELECT SUM(gesamtbetrag) FROM bestellungen WHERE 1=1"
@@ -313,14 +319,11 @@ def get_gesamtumsatz(start: str | None = None, ende: str | None = None) -> float
         res = cursor.fetchone()[0]
         return float(res) if res is not None else 0.0
 
+
 def get_bestellungen_anzahl(start: str | None = None, ende: str | None = None) -> int:
     start_sql = _formatiere_datum_fuer_sql(start)
     ende_sql = _formatiere_datum_fuer_sql(ende)
-<<<<<<< HEAD
 
-=======
-    
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     with get_connection() as conn:
         cursor = conn.cursor()
         query = "SELECT COUNT(*) FROM bestellungen WHERE 1=1"
@@ -335,14 +338,11 @@ def get_bestellungen_anzahl(start: str | None = None, ende: str | None = None) -
         res = cursor.fetchone()[0]
         return int(res) if res is not None else 0
 
+
 def get_artikel_umsatzanteile(start: str | None = None, ende: str | None = None) -> list[dict]:
     start_sql = _formatiere_datum_fuer_sql(start)
     ende_sql = _formatiere_datum_fuer_sql(ende)
-<<<<<<< HEAD
 
-=======
-    
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
     with get_connection() as conn:
         cursor = conn.cursor()
         query = """
@@ -358,17 +358,10 @@ def get_artikel_umsatzanteile(start: str | None = None, ende: str | None = None)
         if ende_sql:
             query += " AND b.datum <= ?"
             params.append(f"{ende_sql} 23:59:59")
-<<<<<<< HEAD
 
         query += " GROUP BY bp.artikel_titel ORDER BY gesamt_umsatz DESC"
         cursor.execute(query, params)
 
-=======
-            
-        query += " GROUP BY bp.artikel_titel ORDER BY gesamt_umsatz DESC"
-        cursor.execute(query, params)
-        
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
         ergebnis = []
         for row in cursor.fetchall():
             ergebnis.append({
@@ -378,8 +371,9 @@ def get_artikel_umsatzanteile(start: str | None = None, ende: str | None = None)
             })
         return ergebnis
 
+
 # =====================================================================
-# 5. SEEDING & BEISPIELDATEN (Muss VOR DatabaseManager stehen!)
+# 6. SEEDING & BEISPIELDATEN
 # =====================================================================
 
 def beispieldaten_einfuegen():
@@ -413,7 +407,7 @@ def beispieldaten_einfuegen():
 
 
 # =====================================================================
-# 6. KOMPATIBILITÄTS-WRAPPER FÜR PERSON 5
+# 7. KOMPATIBILITÄTS-WRAPPER FÜR PERSON 5
 # =====================================================================
 
 class DatabaseManager:
@@ -425,15 +419,7 @@ class DatabaseManager:
     beispieldaten_einfuegen = staticmethod(beispieldaten_einfuegen)
 
 
-# =====================================================================
-# 7. DIREKTER TESTLAUF
-# =====================================================================
-
 if __name__ == "__main__":
     db_initialisieren()
     beispieldaten_einfuegen()
-<<<<<<< HEAD
     print("✅ Datenbank erfolgreich initialisiert und mit Testdaten befüllt!")
-=======
-    print("✅ Datenbank erfolgreich initialisiert und mit Testdaten befüllt!")
->>>>>>> 23ae83192230f6495947a0a4ecb7c1350018481d
