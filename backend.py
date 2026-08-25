@@ -108,7 +108,7 @@ class ShopBackend:
         return max(0.0, round(endsumme, 2))
 
     def rechnung_erstellen(self, dateipfad: str | None = None) -> str:
-        """Formatiert den Rechnungstext und speichert ihn in rechnung.txt."""
+        """Formatiert den Rechnungstext mit MwSt-Aufschlüsselung und speichert ihn in rechnung.txt."""
         pfad = dateipfad or getattr(config, "RECHNUNG_PFAD", "rechnung.txt")
         jetzt = datetime.now().strftime("%d.%m.%Y %H:%M:%S")
 
@@ -140,12 +140,20 @@ class ShopBackend:
             pos_preis = pos.positions_gesamtpreis() if hasattr(pos, "positions_gesamtpreis") else pos.artikel.preis * pos.menge
             zeilen.append(f"{pos.menge:<6}{titel:<24}{groesse:<8}{pos_preis:>9.2f} €")
 
+        gesamt = self.endsumme_berechnen()
+        netto = round(gesamt / 1.19, 2)
+        mwst = round(gesamt - netto, 2)
+
         zeilen.extend([
             "-" * 50,
-            f"Zwischensumme:{self.zwischensumme_berechnen():>36.2f} €",
-            f"Rabatt:       {-self.rabatt_berechnen():>36.2f} €",
+            f"Zwischensumme:        {self.zwischensumme_berechnen():>24.2f} €",
+            f"Rabatt:               {-self.rabatt_berechnen():>24.2f} €",
             trenner,
-            f"GESAMTSUMME:  {self.endsumme_berechnen():>36.2f} €",
+            f"GESAMTSUMME:          {gesamt:>24.2f} €",
+            trenner,
+            "Enthaltene Steuern:",
+            f"  Netto-Warenwert:    {netto:>24.2f} €",
+            f"  19% MwSt.:          {mwst:>24.2f} €",
             trenner,
             "       Vielen Dank für Ihren Einkauf!            ",
             trenner,

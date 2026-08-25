@@ -167,7 +167,6 @@ class KassenView(tk.Frame):
         reset_btn = tk.Button(filter_bar, text="Alle", command=lambda: self._lade_artikel(), bg="#E2E8F0", font=("Segoe UI", 9), relief=tk.FLAT, padx=8, cursor="hand2")
         reset_btn.pack(side=tk.LEFT, padx=3)
 
-        # Artikeltabelle
         columns = ("id", "titel", "kategorie", "preis", "bestand")
         self.artikel_tree = ttk.Treeview(self.left_frame, columns=columns, show="headings", height=7)
         self.artikel_tree.heading("id", text="ID")
@@ -185,11 +184,10 @@ class KassenView(tk.Frame):
 
         self.artikel_tree.bind("<<TreeviewSelect>>", self._on_artikel_ausgewaehlt)
 
-        # Detailkarte unterhalb der Tabelle
+        # Detailkarte
         self.preview_card = tk.Frame(self.left_frame, bg="white", highlightbackground="#CBD5E1", highlightthickness=1, padx=20, pady=20)
         self.preview_card.pack(fill=tk.BOTH, expand=True, pady=(15, 0))
 
-        # 1. Bild links (oben bündig ausgerichtet)
         self.bild_container = tk.Frame(self.preview_card, bg="#F8FAFC", width=220, height=220, highlightbackground="#E2E8F0", highlightthickness=1)
         self.bild_container.pack(side=tk.LEFT, anchor="n", padx=(0, 25))
         self.bild_container.pack_propagate(False)
@@ -197,7 +195,6 @@ class KassenView(tk.Frame):
         self.lbl_bild = tk.Label(self.bild_container, text="📦", font=("Segoe UI Emoji", 48), bg="#F8FAFC")
         self.lbl_bild.place(relx=0.5, rely=0.5, anchor="center")
 
-        # 2. Text- und Aktionsbereich rechts daneben (oben bündig)
         right_detail = tk.Frame(self.preview_card, bg="white")
         right_detail.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, anchor="n")
 
@@ -207,27 +204,25 @@ class KassenView(tk.Frame):
         self.lbl_preview_titel = tk.Label(right_detail, text="Wähle einen Artikel aus", font=("Segoe UI", 16, "bold"), fg="#0F172A", bg="white")
         self.lbl_preview_titel.pack(anchor="w", pady=(2, 8))
 
-        self.lbl_preview_desc = tk.Label(
-            right_detail,
-            text="Klicke auf eine Zeile oben in der Tabelle, um das Produktbild und Details anzuzeigen.",
-            font=("Segoe UI", 10),
-            fg="#475569",
-            bg="white",
-            wraplength=380,
-            justify="left"
-        )
+        self.lbl_preview_desc = tk.Label(right_detail, text="Klicke auf eine Zeile oben, um Details anzuzeigen.", font=("Segoe UI", 10), fg="#475569", bg="white", wraplength=380, justify="left")
         self.lbl_preview_desc.pack(anchor="w", pady=(0, 10))
 
         self.lbl_preview_bestand = tk.Label(right_detail, text="", font=("Segoe UI", 10, "bold"), bg="white")
-        self.lbl_preview_bestand.pack(anchor="w", pady=(0, 20))
+        self.lbl_preview_bestand.pack(anchor="w", pady=(0, 15))
 
-        # 3. Kauf-Aktionsbereich
+        # Kauf-Leiste (Menge + Größe + Button)
         action_bar = tk.Frame(right_detail, bg="white")
         action_bar.pack(anchor="w")
 
         tk.Label(action_bar, text="Menge:", bg="white", font=("Segoe UI", 10)).pack(side=tk.LEFT)
-        self.menge_spin = tk.Spinbox(action_bar, from_=1, to=100, width=4, font=("Segoe UI", 11))
-        self.menge_spin.pack(side=tk.LEFT, padx=(6, 15))
+        self.menge_spin = tk.Spinbox(action_bar, from_=1, to=100, width=3, font=("Segoe UI", 11))
+        self.menge_spin.pack(side=tk.LEFT, padx=(4, 12))
+
+        self.lbl_groesse = tk.Label(action_bar, text="Größe:", bg="white", font=("Segoe UI", 10))
+        self.lbl_groesse.pack(side=tk.LEFT)
+        self.groesse_cb = ttk.Combobox(action_bar, values=["S", "M", "L", "XL"], width=4, state="readonly", font=("Segoe UI", 10))
+        self.groesse_cb.set("M")
+        self.groesse_cb.pack(side=tk.LEFT, padx=(4, 15))
 
         self.add_btn = tk.Button(
             action_bar,
@@ -236,8 +231,8 @@ class KassenView(tk.Frame):
             fg="white",
             font=("Segoe UI", 10, "bold"),
             relief=tk.FLAT,
-            padx=16,
-            pady=8,
+            padx=14,
+            pady=7,
             cursor="hand2",
             command=self._artikel_zu_warenkorb
         )
@@ -380,13 +375,20 @@ class KassenView(tk.Frame):
         self.lbl_preview_titel.config(text=f"{artikel.titel} — {artikel.effektiver_preis:.2f} €")
         self.lbl_preview_desc.config(text=artikel.beschreibung if artikel.beschreibung else "Keine Beschreibung vorhanden.")
 
-        # FOMO / Lagerbestand
+        # Größen-Auswahl nur bei Kleidung aktivieren
+        if artikel.kategorie in ["T-Shirt", "Hoodie"]:
+            self.groesse_cb.config(state="readonly")
+            if not self.groesse_cb.get():
+                self.groesse_cb.set("M")
+        else:
+            self.groesse_cb.set("-")
+            self.groesse_cb.config(state="disabled")
+
         if artikel.lagerbestand <= getattr(config, "FOMO_SCHWELLE", 2):
             self.lbl_preview_bestand.config(text=f"⚠️ Nur noch {artikel.lagerbestand} Stück auf Lager!", fg="#DC2626")
         else:
             self.lbl_preview_bestand.config(text=f"✓ Auf Lager: {artikel.lagerbestand} Stück", fg="#16A34A")
 
-        # Bild auf 220x220 Pixel skalieren
         bild_pfad = self._finde_bildpfad(artikel)
         if bild_pfad:
             try:
@@ -394,8 +396,7 @@ class KassenView(tk.Frame):
                 pil_img.thumbnail((220, 220), Image.Resampling.LANCZOS)
                 self.bild_referenz = ImageTk.PhotoImage(pil_img)
                 self.lbl_bild.config(image=self.bild_referenz, text="", bg="#F8FAFC")
-            except Exception as e:
-                print(f"Fehler beim Öffnen von {bild_pfad}: {e}")
+            except Exception:
                 self.lbl_bild.config(image="", text="📦", font=("Segoe UI Emoji", 48), bg="#F8FAFC")
         else:
             self.lbl_bild.config(image="", text="📦", font=("Segoe UI Emoji", 48), bg="#F8FAFC")
@@ -422,11 +423,11 @@ class KassenView(tk.Frame):
 
         try:
             menge = int(self.menge_spin.get())
-            self.backend.artikel_hinzufuegen(self.aktuell_gewaehlter_artikel, menge)
+            groesse = self.groesse_cb.get() if self.aktuell_gewaehlter_artikel.kategorie in ["T-Shirt", "Hoodie"] else None
+            self.backend.artikel_hinzufuegen(self.aktuell_gewaehlter_artikel, menge, groesse=groesse)
             self._aktualisiere_warenkorb_view()
         except ValueError as e:
             messagebox.showerror("Fehler", str(e))
-
     def _position_entfernen(self):
         selektiert = self.cart_tree.selection()
         if not selektiert:
