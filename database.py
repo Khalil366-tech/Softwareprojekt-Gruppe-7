@@ -386,11 +386,16 @@ def beispieldaten_einfuegen():
         cursor.execute("SELECT COUNT(*) FROM artikel")
         if cursor.fetchone()[0] == 0:
             test_artikel = [
-                ("HTW Saar T-Shirt", "Klassisches Baumwoll-Shirt mit Logo", "T-Shirt", 19.99, 0.0, 15, "2026-08-01"),
-                ("WI Hoodie Classic", "Bequemer Kapuzenpullover", "Hoodie", 39.99, 0.10, 3, "2026-08-05"),
-                ("HTW Saar Kaffeetasse", "Keramiktasse mit Campus-Aufdruck", "Tasse", 8.50, 0.0, 20, "2026-08-10"),
-                ("Sticker-Set Campus", "5er Set wetterfeste Sticker", "Sticker", 2.50, 0.0, 1, "2026-08-12"),
+                                ("HTW Saar T-Shirt Classic", "100% Bio-Baumwolle mit Frontprint", "T-Shirt", 19.99, 0.0, 15, "2026-08-01"),
+                                ("HTW Saar T-Shirt Vintage", "Oversized Fit im Retro-Look", "T-Shirt", 22.50, 0.0, 10, "2026-08-02"),
+                                ("WI Hoodie Classic", "Bequemer Kapuzenpullover mit Logo-Stick", "Hoodie", 39.99, 0.10, 3, "2026-08-05"),
+                                ("WI Zip-Hoodie Black", "Premium Sweatjacke mit Reißverschluss", "Hoodie", 44.90, 0.0, 8, "2026-08-08"),
+                                ("HTW Saar Kaffeetasse", "Keramiktasse mit Campus-Aufdruck 350ml", "Tasse", 8.50, 0.0, 20, "2026-08-10"),
+                                ("Sticker-Set Campus (5er)", "Wetterfeste Vinyl-Aufkleber", "Sticker", 2.50, 0.0, 2, "2026-08-12"),
+                                ("WI Thermobecher Stainless", "Hält 8h warm, auslaufsicher", "Accessoires", 14.90, 0.05, 7, "2026-08-15"),
+                                ("Campus Gymbag Sportbeutel", "Robuster Turnbeutel mit Kordelzug", "Accessoires", 11.90, 0.0, 12, "2026-08-18"),
             ]
+
             cursor.executemany("""
                 INSERT INTO artikel (titel, beschreibung, kategorie, preis, rabattsatz, lagerbestand, erstellungsdatum)
                 VALUES (?, ?, ?, ?, ?, ?, ?)

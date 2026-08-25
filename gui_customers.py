@@ -7,88 +7,134 @@ from models import Kunde
 
 class KundenverwaltungView(tk.Frame):
     def __init__(self, parent, db_manager):
-        super().__init__(parent, bg="#ECF0F1")
+        super().__init__(parent, bg="#F8FAFC")
         self.db = db_manager
         self._erstelle_ui()
         self.lade_daten()
 
     def _erstelle_ui(self):
-        tk.Label(self, text="👥 Kundenverwaltung (Smart Domain-Gating)",
-                 font=("Arial", 16, "bold"), bg="#ECF0F1").pack(pady=10)
+        tk.Label(
+            self, 
+            text="👥 Kundenverwaltung", 
+            font=("Segoe UI", 16, "bold"), 
+            fg="#0F172A", 
+            bg="#F8FAFC"
+        ).pack(pady=(15, 10))
 
-        # --- Eingabe-Formular ---
-        form_frame = tk.LabelFrame(self, text="Neuen Kunden anlegen", bg="#ECF0F1", padx=10, pady=10)
-        form_frame.pack(fill=tk.X, padx=15, pady=5)
+        # --- Eingabe-Formular (Card Design) ---
+        form_frame = tk.LabelFrame(
+            self, 
+            text=" Neuen Kunden anlegen ", 
+            font=("Segoe UI", 10, "bold"),
+            fg="#1E293B",
+            bg="white", 
+            padx=15, 
+            pady=15,
+            highlightbackground="#CBD5E1",
+            highlightthickness=1
+        )
+        form_frame.pack(fill=tk.X, padx=20, pady=10)
 
-        tk.Label(form_frame, text="Kundennummer:", bg="#ECF0F1").grid(row=0, column=0, sticky="w", pady=2)
-        self.ent_knr = tk.Entry(form_frame, width=15)
-        self.ent_knr.grid(row=0, column=1, sticky="w", padx=5, pady=2)
+        # Zeile 0
+        tk.Label(form_frame, text="Kundennummer:", font=("Segoe UI", 9), bg="white", fg="#475569").grid(row=0, column=0, sticky="w", pady=4)
+        self.ent_knr = tk.Entry(form_frame, width=16, font=("Segoe UI", 10))
+        self.ent_knr.grid(row=0, column=1, sticky="w", padx=(5, 20), pady=4)
 
-        tk.Label(form_frame, text="Name:", bg="#ECF0F1").grid(row=0, column=2, sticky="w", pady=2, padx=(15, 0))
-        self.ent_name = tk.Entry(form_frame, width=25)
-        self.ent_name.grid(row=0, column=3, padx=5, pady=2)
+        tk.Label(form_frame, text="Name:", font=("Segoe UI", 9), bg="white", fg="#475569").grid(row=0, column=2, sticky="w", pady=4)
+        self.ent_name = tk.Entry(form_frame, width=28, font=("Segoe UI", 10))
+        self.ent_name.grid(row=0, column=3, padx=5, pady=4, sticky="w")
 
-        tk.Label(form_frame, text="E-Mail:", bg="#ECF0F1").grid(row=1, column=0, sticky="w", pady=2)
-        self.ent_email = tk.Entry(form_frame, width=25)
-        self.ent_email.grid(row=1, column=1, columnspan=2, sticky="w", padx=5, pady=2)
-        # Event-Binding für Smart Domain-Gating während des Tippens
+        # Zeile 1
+        tk.Label(form_frame, text="E-Mail:", font=("Segoe UI", 9), bg="white", fg="#475569").grid(row=1, column=0, sticky="w", pady=4)
+        self.ent_email = tk.Entry(form_frame, width=28, font=("Segoe UI", 10))
+        self.ent_email.grid(row=1, column=1, columnspan=2, sticky="w", padx=5, pady=4)
         self.ent_email.bind("<KeyRelease>", self.check_uni_domain)
 
-        # Weitere Adressfelder
-        tk.Label(form_frame, text="Straße:", bg="#ECF0F1").grid(row=2, column=0, sticky="w", pady=2)
-        self.ent_str = tk.Entry(form_frame, width=25)
-        self.ent_str.grid(row=2, column=1, sticky="w", padx=5, pady=2)
+        # Zeile 2
+        tk.Label(form_frame, text="Straße:", font=("Segoe UI", 9), bg="white", fg="#475569").grid(row=2, column=0, sticky="w", pady=4)
+        self.ent_str = tk.Entry(form_frame, width=28, font=("Segoe UI", 10))
+        self.ent_str.grid(row=2, column=1, sticky="w", padx=(5, 20), pady=4)
 
-        tk.Label(form_frame, text="PLZ / Ort:", bg="#ECF0F1").grid(row=2, column=2, sticky="w", pady=2, padx=(15, 0))
-        plz_ort_frame = tk.Frame(form_frame, bg="#ECF0F1")
+        tk.Label(form_frame, text="PLZ / Ort:", font=("Segoe UI", 9), bg="white", fg="#475569").grid(row=2, column=2, sticky="w", pady=4)
+        plz_ort_frame = tk.Frame(form_frame, bg="white")
         plz_ort_frame.grid(row=2, column=3, sticky="w")
-        self.ent_plz = tk.Entry(plz_ort_frame, width=7)
+        self.ent_plz = tk.Entry(plz_ort_frame, width=7, font=("Segoe UI", 10))
         self.ent_plz.pack(side=tk.LEFT, padx=(0, 5))
-        self.ent_ort = tk.Entry(plz_ort_frame, width=15)
+        self.ent_ort = tk.Entry(plz_ort_frame, width=18, font=("Segoe UI", 10))
         self.ent_ort.pack(side=tk.LEFT)
 
+        # Zeile 3
         self.var_student = tk.BooleanVar()
-        self.chk_student = tk.Checkbutton(form_frame, text="Ist Student (10% Rabatt)", variable=self.var_student,
-                                          bg="#ECF0F1")
-        self.chk_student.grid(row=3, column=0, columnspan=2, sticky="w", pady=5)
+        self.chk_student = tk.Checkbutton(
+            form_frame, 
+            text="Ist Student (10% Rabatt)", 
+            variable=self.var_student,
+            bg="white",
+            font=("Segoe UI", 9),
+            activebackground="white"
+        )
+        self.chk_student.grid(row=3, column=0, columnspan=2, sticky="w", pady=(8, 0))
 
-        # Marketing Alert Label (wird sichtbar bei htwsaar.de)
-        self.lbl_alert = tk.Label(form_frame, text="", font=("Arial", 10, "bold"), bg="#ECF0F1")
-        self.lbl_alert.grid(row=3, column=2, columnspan=2, sticky="w")
+        # Marketing Alert Label
+        self.lbl_alert = tk.Label(form_frame, text="", font=("Segoe UI", 9, "bold"), bg="white")
+        self.lbl_alert.grid(row=3, column=2, columnspan=2, sticky="w", pady=(8, 0))
 
         # Buttons
-        btn_frame = tk.Frame(form_frame, bg="#ECF0F1")
-        btn_frame.grid(row=4, column=0, columnspan=4, pady=10, sticky="w")
+        btn_frame = tk.Frame(form_frame, bg="white")
+        btn_frame.grid(row=4, column=0, columnspan=4, pady=(15, 0), sticky="w")
 
-        tk.Button(btn_frame, text="💾 Kunden speichern", bg="#2980B9", fg="white", command=self.kunde_speichern).pack(
-            side=tk.LEFT, padx=5)
-        tk.Button(btn_frame, text="🗑️ Kunden löschen", bg="#E74C3C", fg="white", command=self.kunde_loeschen).pack(
-            side=tk.LEFT, padx=5)
+        tk.Button(
+            btn_frame, 
+            text="💾 Kunden speichern", 
+            bg="#2563EB", 
+            fg="white", 
+            font=("Segoe UI", 9, "bold"),
+            relief=tk.FLAT,
+            padx=12,
+            pady=6,
+            cursor="hand2",
+            command=self.kunde_speichern
+        ).pack(side=tk.LEFT, padx=(0, 8))
+
+        tk.Button(
+            btn_frame, 
+            text="🗑️ Kunden löschen", 
+            bg="#EF4444", 
+            fg="white", 
+            font=("Segoe UI", 9, "bold"),
+            relief=tk.FLAT,
+            padx=12,
+            pady=6,
+            cursor="hand2",
+            command=self.kunde_loeschen
+        ).pack(side=tk.LEFT)
 
         # --- Kunden-Tabelle ---
-        table_frame = tk.Frame(self, bg="#ECF0F1")
-        table_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=10)
+        table_frame = tk.Frame(self, bg="#F8FAFC")
+        table_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(10, 20))
 
         cols = ("knr", "name", "email", "ort", "student")
         self.tree = ttk.Treeview(table_frame, columns=cols, show="headings", height=10)
-        self.tree.heading("knr", text="KundenNr.")
+        self.tree.heading("knr", text="Kunden-Nr.")
         self.tree.heading("name", text="Name")
         self.tree.heading("email", text="E-Mail")
         self.tree.heading("ort", text="Ort")
         self.tree.heading("student", text="Student?")
 
         self.tree.column("knr", width=100, anchor="center")
-        self.tree.column("student", width=80, anchor="center")
+        self.tree.column("name", width=200)
+        self.tree.column("email", width=220)
+        self.tree.column("ort", width=150)
+        self.tree.column("student", width=90, anchor="center")
         self.tree.pack(fill=tk.BOTH, expand=True)
 
     def check_uni_domain(self, event=None):
-        """Marketing Logic: Prüft ob die E-Mail zur Uni gehört (Domain-Gating)"""
         email = self.ent_email.get().strip().lower()
         domain = getattr(config, "UNI_DOMAIN", "@htwsaar.de").lower()
 
         if email.endswith(domain) and len(email) > len(domain):
             self.var_student.set(True)
-            self.lbl_alert.config(text="🎓 htw saar Mitglied erkannt: Willkommensrabatt aktiv!", fg="#27AE60")
+            self.lbl_alert.config(text="🎓 htw saar Mitglied erkannt (Rabatt aktiv)", fg="#16A34A")
         else:
             self.var_student.set(False)
             self.lbl_alert.config(text="")

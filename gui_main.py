@@ -1,5 +1,8 @@
+import os
 import tkinter as tk
 from tkinter import ttk, messagebox
+from PIL import Image, ImageTk
+
 import config
 from backend import ShopBackend
 import database
@@ -9,18 +12,21 @@ from gui_reports import ReportsWindow
 
 
 class MainWindow(tk.Tk):
-    """Hauptfenster der Kassenanwendung (Person 3)."""
+    """Hauptfenster der Kassenanwendung."""
 
     def __init__(self, db_manager=None):
         super().__init__()
         self.db = db_manager or database
         self.backend = ShopBackend(db_manager=self.db)
 
-        self.title(getattr(config, "APP_TITLE", "WI Fanshop — Kassen & Checkout"))
-        self.geometry("1100x700")
-        self.minsize(950, 600)
+        self.title("WI Fanshop - Kasse & Checkout")
+        self.geometry("1150x720")
+        self.minsize(1000, 650)
 
-        # 1. Automatische Initialisierung der Datenbank sicherstellen
+        # Globales Styling für Tabellen
+        self._konfiguriere_styles()
+
+        # Automatische Initialisierung der Datenbank
         if hasattr(self.db, "db_initialisieren"):
             self.db.db_initialisieren()
         if hasattr(self.db, "beispieldaten_einfuegen"):
@@ -29,19 +35,48 @@ class MainWindow(tk.Tk):
         self._erstelle_layout()
         self.zeige_view("kasse")
 
+    def _konfiguriere_styles(self):
+        style = ttk.Style(self)
+        style.theme_use("clam")
+
+        # Tabellen-Design
+        style.configure("Treeview", 
+                        background="white", 
+                        foreground="#1E293B", 
+                        rowheight=26, 
+                        fieldbackground="white",
+                        font=("Segoe UI", 9))
+        style.configure("Treeview.Heading", 
+                        background="#E2E8F0", 
+                        foreground="#1E293B", 
+                        font=("Segoe UI", 9, "bold"))
+        style.map("Treeview", background=[("selected", "#3B82F6")], foreground=[("selected", "white")])
+
     def _erstelle_layout(self):
         # 1. Sidebar links
-        self.sidebar = tk.Frame(self, bg="#2C3E50", width=200)
+        self.sidebar = tk.Frame(self, bg="#0F172A", width=220)
         self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
         self.sidebar.pack_propagate(False)
 
+        # Header in der Sidebar (kompakt ohne Abschneiden)
+        header_frame = tk.Frame(self.sidebar, bg="#0F172A")
+        header_frame.pack(fill=tk.X, padx=10, pady=(20, 15))
+
         tk.Label(
-            self.sidebar,
-            text=getattr(config, "APP_TITLE", "WI FANSHOP"),
+            header_frame,
+            text="WI FANSHOP",
             fg="white",
-            bg="#2C3E50",
-            font=("Arial", 16, "bold")
-        ).pack(pady=20)
+            bg="#0F172A",
+            font=("Segoe UI", 14, "bold")
+        ).pack()
+
+        tk.Label(
+            header_frame,
+            text="Kasse & Verwaltung",
+            fg="#94A3B8",
+            bg="#0F172A",
+            font=("Segoe UI", 8)
+        ).pack(pady=(2, 0))
 
         # Navigationsbuttons
         self._nav_btn("🛒 Kasse / Checkout", lambda: self.zeige_view("kasse"))
@@ -50,7 +85,7 @@ class MainWindow(tk.Tk):
         self._nav_btn("📊 Berichte / Dashboard", lambda: self.zeige_view("berichte"))
 
         # 2. Inhaltsbereich rechts
-        self.content_area = tk.Frame(self, bg="#ECF0F1")
+        self.content_area = tk.Frame(self, bg="#F8FAFC")
         self.content_area.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
 
     def _nav_btn(self, text, command):
@@ -58,15 +93,18 @@ class MainWindow(tk.Tk):
             self.sidebar,
             text=text,
             command=command,
-            bg="#34495E",
-            fg="white",
+            bg="#1E293B",
+            fg="#F8FAFC",
             relief=tk.FLAT,
-            font=("Arial", 11),
+            font=("Segoe UI", 10),
             anchor="w",
             padx=15,
-            pady=10
+            pady=10,
+            cursor="hand2",
+            activebackground="#334155",
+            activeforeground="white"
         )
-        btn.pack(fill=tk.X, padx=8, pady=4)
+        btn.pack(fill=tk.X, padx=10, pady=4)
 
     def zeige_view(self, view_name: str):
         for widget in self.content_area.winfo_children():
@@ -85,23 +123,16 @@ class MainWindow(tk.Tk):
             view = ReportsWindow(self.content_area, self.db)
             view.pack(fill=tk.BOTH, expand=True)
 
-    def _zeige_platzhalter(self, titel):
-        tk.Label(
-            self.content_area,
-            text=f"{titel}\n\n(Dieses Modul wird von einem Teammitglied erstellt)",
-            font=("Arial", 14),
-            bg="#ECF0F1",
-            fg="#7F8C8D"
-        ).pack(expand=True)
-
 
 class KassenView(tk.Frame):
-    """Kassen- und Checkout-Ansicht (Person 3)."""
+    """Kassen- und Checkout-Ansicht mit Bild- und Detailvorschau."""
 
     def __init__(self, parent, backend: ShopBackend, db):
-        super().__init__(parent, bg="#ECF0F1")
+        super().__init__(parent, bg="#F8FAFC")
         self.backend = backend
         self.db = db
+        self.aktuell_gewaehlter_artikel = None
+        self.bild_referenz = None
 
         self._erstelle_ui()
         self._lade_kunden()
@@ -109,8 +140,8 @@ class KassenView(tk.Frame):
         self._aktualisiere_warenkorb_view()
 
     def _erstelle_ui(self):
-        # Links: Produktkatalog & Suche | Rechts: Warenkorb & Kasse
-        self.left_frame = tk.Frame(self, bg="#ECF0F1", padx=15, pady=15)
+        # Links: Produktkatalog & Detail/Bild | Rechts: Warenkorb & Checkout
+        self.left_frame = tk.Frame(self, bg="#F8FAFC", padx=15, pady=15)
         self.left_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.right_frame = tk.Frame(self, bg="white", width=420, padx=15, pady=15, relief=tk.RIDGE, bd=1)
@@ -121,22 +152,24 @@ class KassenView(tk.Frame):
         self._baue_checkout_bereich()
 
     # --- Linke Spalte ---
+    # --- Linke Spalte ---
     def _baue_katalog_bereich(self):
-        filter_bar = tk.Frame(self.left_frame, bg="#ECF0F1")
+        filter_bar = tk.Frame(self.left_frame, bg="#F8FAFC")
         filter_bar.pack(fill=tk.X, pady=(0, 10))
 
-        tk.Label(filter_bar, text="Artikelsuche:", bg="#ECF0F1", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
-        self.such_entry = tk.Entry(filter_bar, width=22)
+        tk.Label(filter_bar, text="Artikelsuche:", bg="#F8FAFC", font=("Segoe UI", 10, "bold"), fg="#1E293B").pack(side=tk.LEFT)
+        self.such_entry = tk.Entry(filter_bar, width=20, font=("Segoe UI", 10))
         self.such_entry.pack(side=tk.LEFT, padx=5)
 
-        suchen_btn = tk.Button(filter_bar, text="🔍 Suchen", command=self._artikel_filtern, bg="#34495E", fg="white")
+        suchen_btn = tk.Button(filter_bar, text="🔍 Suchen", command=self._artikel_filtern, bg="#334155", fg="white", font=("Segoe UI", 9), relief=tk.FLAT, padx=8, cursor="hand2")
         suchen_btn.pack(side=tk.LEFT, padx=3)
 
-        reset_btn = tk.Button(filter_bar, text="Alle", command=lambda: self._lade_artikel(), bg="#BDC3C7")
+        reset_btn = tk.Button(filter_bar, text="Alle", command=lambda: self._lade_artikel(), bg="#E2E8F0", font=("Segoe UI", 9), relief=tk.FLAT, padx=8, cursor="hand2")
         reset_btn.pack(side=tk.LEFT, padx=3)
 
+        # Artikeltabelle
         columns = ("id", "titel", "kategorie", "preis", "bestand")
-        self.artikel_tree = ttk.Treeview(self.left_frame, columns=columns, show="headings", height=15)
+        self.artikel_tree = ttk.Treeview(self.left_frame, columns=columns, show="headings", height=7)
         self.artikel_tree.heading("id", text="ID")
         self.artikel_tree.heading("titel", text="Titel")
         self.artikel_tree.heading("kategorie", text="Kategorie")
@@ -145,38 +178,79 @@ class KassenView(tk.Frame):
 
         self.artikel_tree.column("id", width=40, anchor="center")
         self.artikel_tree.column("titel", width=220)
-        self.artikel_tree.column("kategorie", width=110)
+        self.artikel_tree.column("kategorie", width=100)
         self.artikel_tree.column("preis", width=80, anchor="e")
         self.artikel_tree.column("bestand", width=70, anchor="center")
-        self.artikel_tree.pack(fill=tk.BOTH, expand=True)
+        self.artikel_tree.pack(fill=tk.X)
 
-        action_bar = tk.Frame(self.left_frame, bg="#ECF0F1")
-        action_bar.pack(fill=tk.X, pady=10)
+        self.artikel_tree.bind("<<TreeviewSelect>>", self._on_artikel_ausgewaehlt)
 
-        tk.Label(action_bar, text="Menge:", bg="#ECF0F1").pack(side=tk.LEFT)
-        self.menge_spin = tk.Spinbox(action_bar, from_=1, to=100, width=5)
-        self.menge_spin.pack(side=tk.LEFT, padx=5)
+        # Detailkarte unterhalb der Tabelle
+        self.preview_card = tk.Frame(self.left_frame, bg="white", highlightbackground="#CBD5E1", highlightthickness=1, padx=20, pady=20)
+        self.preview_card.pack(fill=tk.BOTH, expand=True, pady=(15, 0))
 
-        add_btn = tk.Button(
+        # 1. Bild links (oben bündig ausgerichtet)
+        self.bild_container = tk.Frame(self.preview_card, bg="#F8FAFC", width=220, height=220, highlightbackground="#E2E8F0", highlightthickness=1)
+        self.bild_container.pack(side=tk.LEFT, anchor="n", padx=(0, 25))
+        self.bild_container.pack_propagate(False)
+
+        self.lbl_bild = tk.Label(self.bild_container, text="📦", font=("Segoe UI Emoji", 48), bg="#F8FAFC")
+        self.lbl_bild.place(relx=0.5, rely=0.5, anchor="center")
+
+        # 2. Text- und Aktionsbereich rechts daneben (oben bündig)
+        right_detail = tk.Frame(self.preview_card, bg="white")
+        right_detail.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, anchor="n")
+
+        self.lbl_preview_kategorie = tk.Label(right_detail, text="", font=("Segoe UI", 9, "bold"), fg="#64748B", bg="white")
+        self.lbl_preview_kategorie.pack(anchor="w")
+
+        self.lbl_preview_titel = tk.Label(right_detail, text="Wähle einen Artikel aus", font=("Segoe UI", 16, "bold"), fg="#0F172A", bg="white")
+        self.lbl_preview_titel.pack(anchor="w", pady=(2, 8))
+
+        self.lbl_preview_desc = tk.Label(
+            right_detail,
+            text="Klicke auf eine Zeile oben in der Tabelle, um das Produktbild und Details anzuzeigen.",
+            font=("Segoe UI", 10),
+            fg="#475569",
+            bg="white",
+            wraplength=380,
+            justify="left"
+        )
+        self.lbl_preview_desc.pack(anchor="w", pady=(0, 10))
+
+        self.lbl_preview_bestand = tk.Label(right_detail, text="", font=("Segoe UI", 10, "bold"), bg="white")
+        self.lbl_preview_bestand.pack(anchor="w", pady=(0, 20))
+
+        # 3. Kauf-Aktionsbereich
+        action_bar = tk.Frame(right_detail, bg="white")
+        action_bar.pack(anchor="w")
+
+        tk.Label(action_bar, text="Menge:", bg="white", font=("Segoe UI", 10)).pack(side=tk.LEFT)
+        self.menge_spin = tk.Spinbox(action_bar, from_=1, to=100, width=4, font=("Segoe UI", 11))
+        self.menge_spin.pack(side=tk.LEFT, padx=(6, 15))
+
+        self.add_btn = tk.Button(
             action_bar,
             text="➕ In den Warenkorb",
-            bg="#27AE60",
+            bg="#16A34A",
             fg="white",
-            font=("Arial", 10, "bold"),
-            padx=10,
-            pady=4,
+            font=("Segoe UI", 10, "bold"),
+            relief=tk.FLAT,
+            padx=16,
+            pady=8,
+            cursor="hand2",
             command=self._artikel_zu_warenkorb
         )
-        add_btn.pack(side=tk.LEFT, padx=10)
+        self.add_btn.pack(side=tk.LEFT)
 
     # --- Rechte Spalte ---
     def _baue_checkout_bereich(self):
-        tk.Label(self.right_frame, text="Kunde auswählen:", bg="white", font=("Arial", 10, "bold")).pack(anchor="w")
-        self.kunden_combobox = ttk.Combobox(self.right_frame, state="readonly")
-        self.kunden_combobox.pack(fill=tk.X, pady=(3, 15))
+        tk.Label(self.right_frame, text="Kunde auswählen:", bg="white", font=("Segoe UI", 10, "bold"), fg="#1E293B").pack(anchor="w")
+        self.kunden_combobox = ttk.Combobox(self.right_frame, state="readonly", font=("Segoe UI", 9))
+        self.kunden_combobox.pack(fill=tk.X, pady=(4, 15))
         self.kunden_combobox.bind("<<ComboboxSelected>>", self._kunde_gewaehlt)
 
-        tk.Label(self.right_frame, text="Aktueller Warenkorb:", bg="white", font=("Arial", 10, "bold")).pack(anchor="w")
+        tk.Label(self.right_frame, text="Aktueller Warenkorb:", bg="white", font=("Segoe UI", 10, "bold"), fg="#1E293B").pack(anchor="w")
 
         cart_cols = ("id", "titel", "menge", "summe")
         self.cart_tree = ttk.Treeview(self.right_frame, columns=cart_cols, show="headings", height=8)
@@ -195,41 +269,42 @@ class KassenView(tk.Frame):
             self.right_frame,
             text="🗑️ Position entfernen",
             command=self._position_entfernen,
-            bg="#E74C3C",
-            fg="white"
+            bg="#EF4444",
+            fg="white",
+            relief=tk.FLAT,
+            font=("Segoe UI", 9),
+            padx=8,
+            pady=3,
+            cursor="hand2"
         )
-        del_btn.pack(anchor="w", pady=(0, 10))
+        del_btn.pack(anchor="w", pady=(2, 10))
 
-        self.lbl_zwischensumme = tk.Label(self.right_frame, text="Zwischensumme: 0.00 €", bg="white", anchor="e")
+        self.lbl_zwischensumme = tk.Label(self.right_frame, text="Zwischensumme: 0.00 €", bg="white", font=("Segoe UI", 9), anchor="e")
         self.lbl_zwischensumme.pack(fill=tk.X, pady=1)
 
-        self.lbl_rabatt = tk.Label(self.right_frame, text="Rabatt: 0.00 €", bg="white", fg="#C0392B", anchor="e")
+        self.lbl_rabatt = tk.Label(self.right_frame, text="Rabatt: 0.00 €", bg="white", fg="#DC2626", font=("Segoe UI", 9), anchor="e")
         self.lbl_rabatt.pack(fill=tk.X, pady=1)
 
-        self.lbl_gesamt = tk.Label(self.right_frame, text="Gesamtsumme: 0.00 €", bg="white", font=("Arial", 12, "bold"), anchor="e")
+        self.lbl_gesamt = tk.Label(self.right_frame, text="Gesamtsumme: 0.00 €", bg="white", font=("Segoe UI", 13, "bold"), fg="#0F172A", anchor="e")
         self.lbl_gesamt.pack(fill=tk.X, pady=(5, 15))
 
         order_btn = tk.Button(
             self.right_frame,
             text="💳 Jetzt Bestellen",
-            bg="#2980B9",
+            bg="#2563EB",
             fg="white",
-            font=("Arial", 12, "bold"),
-            pady=8,
+            font=("Segoe UI", 11, "bold"),
+            relief=tk.FLAT,
+            pady=10,
+            cursor="hand2",
             command=self._bestellung_ausfuehren
         )
         order_btn.pack(fill=tk.X)
 
     # --- Datenladen & Aktionen ---
     def _lade_kunden(self):
-        if hasattr(self.db, "get_all_kunden"):
-            kunden = self.db.get_all_kunden()
-        elif hasattr(self.db, "alle_kunden_laden"):
-            kunden = self.db.alle_kunden_laden()
-        else:
-            kunden = []
-
-        self.kunden_liste = {f"{k.name} ({getattr(k, 'kundennummer', getattr(k, 'id', ''))})": k for k in kunden}
+        kunden = self.db.alle_kunden_laden() if hasattr(self.db, "alle_kunden_laden") else []
+        self.kunden_liste = {f"{k.name} ({getattr(k, 'kundennummer', '')})": k for k in kunden}
         self.kunden_combobox["values"] = ["Gastbestellung"] + list(self.kunden_liste.keys())
         self.kunden_combobox.current(0)
 
@@ -237,36 +312,97 @@ class KassenView(tk.Frame):
         for item in self.artikel_tree.get_children():
             self.artikel_tree.delete(item)
 
-        if artikel_liste is not None:
-            artikeln = artikel_liste
-        elif hasattr(self.db, "alle_artikel_laden"):
-            artikeln = self.db.alle_artikel_laden()
-        elif hasattr(self.db, "get_all_artikel"):
-            artikeln = self.db.get_all_artikel()
-        elif hasattr(self.db, "artikel_laden"):
-            artikeln = self.db.artikel_laden()
-        else:
-            artikeln = []
-
+        artikeln = artikel_liste if artikel_liste is not None else self.db.alle_artikel_laden()
         for art in artikeln:
-            art_id = getattr(art, "id", getattr(art, "artikel_id", 0))
-            titel = getattr(art, "titel", getattr(art, "name", "-"))
-            kategorie = getattr(art, "kategorie", "-")
-            preis = getattr(art, "preis", 0.0)
-            bestand = getattr(art, "lagerbestand", getattr(art, "bestand", 0))
-
             self.artikel_tree.insert("", tk.END, values=(
-                art_id, titel, kategorie, f"{preis:.2f}", bestand
+                art.id, art.titel, art.kategorie, f"{art.preis:.2f}", art.lagerbestand
             ))
+
+        # Beim Start automatisch den ersten Artikel selektieren und Bild laden
+        children = self.artikel_tree.get_children()
+        if children:
+            self.artikel_tree.selection_set(children[0])
+            self.artikel_tree.focus(children[0])
+            self._on_artikel_ausgewaehlt()
+
+    def _finde_bildpfad(self, artikel):
+        """Findet Bilder vollautomatisch – ignoriert Schreibweise, Bindestriche und Unterstriche."""
+        basis_ordner = os.path.join(os.path.dirname(__file__), "assets") if "__file__" in globals() else "assets"
+        if not os.path.exists(basis_ordner):
+            return None
+
+        # Hilfsfunktion: Bereinigt Text von allen Trenn- und Sonderzeichen
+        def bereinige(text):
+            return text.lower().replace(" ", "").replace("_", "").replace("-", "").replace("(", "").replace(")", "")
+
+        artikel_bereinigt = bereinige(artikel.titel)
+
+        try:
+            dateien_im_ordner = os.listdir(basis_ordner)
+        except Exception:
+            return None
+
+        # 1. Exakter Normalisierungs-Treffer
+        for datei in dateien_im_ordner:
+            if not datei.lower().endswith((".png", ".jpg", ".jpeg")):
+                continue
+            
+            dateiname_ohne_endung = os.path.splitext(datei)[0]
+            datei_bereinigt = bereinige(dateiname_ohne_endung)
+
+            # Match, wenn bereinigter Name übereinstimmt oder komplett im Namen enthalten ist
+            if artikel_bereinigt == datei_bereinigt or artikel_bereinigt in datei_bereinigt or datei_bereinigt in artikel_bereinigt:
+                return os.path.join(basis_ordner, datei)
+
+        # 2. Fallback: Suche nach Schlüsselwörtern im Titel (z. B. 'kaffeetasse', 'hoodie', 'gymbag')
+        schlagworte = ["tasse", "hoodie", "tshirt", "sticker", "thermobecher", "gymbag", "vintage"]
+        for wort in schlagworte:
+            if wort in artikel_bereinigt:
+                for datei in dateien_im_ordner:
+                    if wort in bereinige(datei):
+                        return os.path.join(basis_ordner, datei)
+
+        return None
+
+    def _on_artikel_ausgewaehlt(self, event=None):
+        selektiert = self.artikel_tree.selection()
+        if not selektiert:
+            return
+
+        artikel_id = int(self.artikel_tree.item(selektiert[0])["values"][0])
+        artikel = self.db.artikel_nach_id_laden(artikel_id) if hasattr(self.db, "artikel_nach_id_laden") else None
+
+        if not artikel:
+            return
+
+        self.aktuell_gewaehlter_artikel = artikel
+        self.lbl_preview_kategorie.config(text=artikel.kategorie.upper())
+        self.lbl_preview_titel.config(text=f"{artikel.titel} — {artikel.effektiver_preis:.2f} €")
+        self.lbl_preview_desc.config(text=artikel.beschreibung if artikel.beschreibung else "Keine Beschreibung vorhanden.")
+
+        # FOMO / Lagerbestand
+        if artikel.lagerbestand <= getattr(config, "FOMO_SCHWELLE", 2):
+            self.lbl_preview_bestand.config(text=f"⚠️ Nur noch {artikel.lagerbestand} Stück auf Lager!", fg="#DC2626")
+        else:
+            self.lbl_preview_bestand.config(text=f"✓ Auf Lager: {artikel.lagerbestand} Stück", fg="#16A34A")
+
+        # Bild auf 220x220 Pixel skalieren
+        bild_pfad = self._finde_bildpfad(artikel)
+        if bild_pfad:
+            try:
+                pil_img = Image.open(bild_pfad)
+                pil_img.thumbnail((220, 220), Image.Resampling.LANCZOS)
+                self.bild_referenz = ImageTk.PhotoImage(pil_img)
+                self.lbl_bild.config(image=self.bild_referenz, text="", bg="#F8FAFC")
+            except Exception as e:
+                print(f"Fehler beim Öffnen von {bild_pfad}: {e}")
+                self.lbl_bild.config(image="", text="📦", font=("Segoe UI Emoji", 48), bg="#F8FAFC")
+        else:
+            self.lbl_bild.config(image="", text="📦", font=("Segoe UI Emoji", 48), bg="#F8FAFC")
 
     def _artikel_filtern(self):
         text = self.such_entry.get().strip()
-        if hasattr(self.db, "suche_artikel"):
-            gefiltert = self.db.suche_artikel(suchtext=text if text else None)
-        elif hasattr(self.db, "artikel_suchen"):
-            gefiltert = self.db.artikel_suchen(text)
-        else:
-            gefiltert = []
+        gefiltert = self.db.artikel_suchen(text) if hasattr(self.db, "artikel_suchen") else []
         self._lade_artikel(gefiltert)
 
     def _kunde_gewaehlt(self, event=None):
@@ -276,27 +412,20 @@ class KassenView(tk.Frame):
         self._aktualisiere_preise()
 
     def _artikel_zu_warenkorb(self):
-        selektiert = self.artikel_tree.selection()
-        if not selektiert:
-            messagebox.showwarning("Hinweis", "Bitte wählen Sie zuerst einen Artikel aus.")
-            return
-
-        artikel_id = int(self.artikel_tree.item(selektiert[0])["values"][0])
-        menge = int(self.menge_spin.get())
-
-        if hasattr(self.db, "get_artikel_by_id"):
-            artikel = self.db.get_artikel_by_id(artikel_id)
-        elif hasattr(self.db, "artikel_nach_id_laden"):
-            artikel = self.db.artikel_nach_id_laden(artikel_id)
-        else:
-            messagebox.showerror("Fehler", "Artikel konnte nicht geladen werden.")
-            return
+        if not self.aktuell_gewaehlter_artikel:
+            selektiert = self.artikel_tree.selection()
+            if not selektiert:
+                messagebox.showwarning("Hinweis", "Bitte wählen Sie zuerst einen Artikel aus.")
+                return
+            artikel_id = int(self.artikel_tree.item(selektiert[0])["values"][0])
+            self.aktuell_gewaehlter_artikel = self.db.artikel_nach_id_laden(artikel_id)
 
         try:
-            self.backend.artikel_hinzufuegen(artikel, menge)
+            menge = int(self.menge_spin.get())
+            self.backend.artikel_hinzufuegen(self.aktuell_gewaehlter_artikel, menge)
             self._aktualisiere_warenkorb_view()
         except ValueError as e:
-            messagebox.showerror("Bestandsfehler", str(e))
+            messagebox.showerror("Fehler", str(e))
 
     def _position_entfernen(self):
         selektiert = self.cart_tree.selection()
@@ -313,10 +442,9 @@ class KassenView(tk.Frame):
             self.cart_tree.delete(item)
 
         for pos in self.backend.warenkorb.positionen:
-            art_id = getattr(pos.artikel, "artikel_id", getattr(pos.artikel, "id", 0))
             preis = pos.positions_gesamtpreis() if hasattr(pos, "positions_gesamtpreis") else pos.artikel.preis * pos.menge
             self.cart_tree.insert("", tk.END, values=(
-                art_id, pos.artikel.titel, pos.menge, f"{preis:.2f} €"
+                pos.artikel.id, pos.artikel.titel, pos.menge, f"{preis:.2f} €"
             ))
 
         self._aktualisiere_preise()
@@ -343,10 +471,5 @@ class KassenView(tk.Frame):
 
 
 if __name__ == "__main__":
-    if hasattr(database, "db_initialisieren"):
-        database.db_initialisieren()
-    if hasattr(database, "beispieldaten_einfuegen"):
-        database.beispieldaten_einfuegen()
-
     app = MainWindow(database)
     app.mainloop()
